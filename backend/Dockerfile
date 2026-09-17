@@ -1,27 +1,21 @@
-# Stage 1 - build the static frontend with Vite.
-FROM node:22-alpine AS frontend-build
-WORKDIR /build
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build
-
-# Stage 2 - FastAPI service that also serves the built frontend.
+# Todo backend - FastAPI API only. Serves no frontend assets.
+# Build context is this folder:  docker build -t todo-backend ./backend
 FROM python:3.13-slim
-WORKDIR /app/backend
+WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TODO_DATA_FILE=/data/todos.json \
-    FRONTEND_DIST=/app/frontend/dist \
     MANIFEST_PATH=/app/manifest.json
 
-COPY backend/requirements.txt ./
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ ./
-COPY manifest.json /app/manifest.json
-COPY --from=frontend-build /build/dist /app/frontend/dist
+COPY . ./
+
+# manifest.json lives at the repository root, outside this build context.
+# Mount it at MANIFEST_PATH (docker-compose.yml does); without it,
+# GET /api/manifest returns 404 and everything else works normally.
 
 # todos.json lives on a volume so todos survive container rebuilds.
 RUN mkdir -p /data

@@ -16,6 +16,7 @@
   },
   "frontend": {
     "type": "module-federation",
+    "port": 80,
     "remoteName": "todo_plugin",
     "remoteEntry": "remoteEntry.js",
     "exposedModule": "./TodoApp",

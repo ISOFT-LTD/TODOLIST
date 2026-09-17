@@ -13,7 +13,8 @@ A small Todo List packaged the way a future ITSM plugin will be:
 - a **frontend exposed through Module Federation**, so the ITSM React shell can
   load it at runtime without rebuilding
 - a **`manifest.json`** describing the plugin to the host
-- a **Docker image** that ships all of the above as one unit
+- **two independent Docker images** from this one repository: a frontend image
+  that serves only the plugin assets, and a backend image that runs only the API
 
 In the target architecture the browser never talks to the Todo service
 directly:
@@ -40,11 +41,13 @@ the Todo service URL. It only calls the SDK it is given.
 ```
 .
 ├── backend/
-│   ├── main.py            FastAPI app: routes, manifest + static serving
+│   ├── main.py            FastAPI app: routes + manifest endpoint
 │   ├── models.py          Todo record and CRUD over the JSON store
 │   ├── schemas.py         Pydantic request/response schemas
 │   ├── database.py        JSON file storage (read, atomic write, init)
-│   └── requirements.txt
+│   ├── requirements.txt
+│   ├── Dockerfile         Backend image: FastAPI only
+│   └── .dockerignore
 ├── frontend/
 │   ├── index.html         Standalone page
 │   ├── src/
@@ -54,10 +57,11 @@ the Todo service URL. It only calls the SDK it is given.
 │   │   └── main.js        Standalone entry point
 │   ├── public/
 │   ├── vite.config.js     Module Federation remote + dev proxy
-│   └── package.json
+│   ├── package.json
+│   ├── Dockerfile         Frontend image: static assets only (nginx)
+│   └── .dockerignore
 ├── manifest.json          Plugin manifest
-├── Dockerfile
-└── docker-compose.yml
+└── docker-compose.yml     Runs both images side by side
 ```
 
 ## Prerequisites
@@ -105,24 +109,70 @@ development SDK ([`frontend/src/dev-sdk.js`](frontend/src/dev-sdk.js)), whose
 server proxies `/api` to the backend on port 8000, so no backend URL is
 hardcoded.
 
-To have FastAPI serve the frontend itself on port 8000 instead, build it once:
-
-```bash
-npm run build     # writes frontend/dist, which the backend serves at /
+```
+Browser → Vite :5173 → dev-sdk.js → Vite /api proxy → FastAPI :8000 → todos.json
 ```
 
-## Run with Docker Compose
+To produce the plugin assets (`frontend/dist`, including `remoteEntry.js`):
+
+```bash
+npm run build
+```
+
+## Docker
+
+The frontend and backend are separate images. Each builds only from its own
+folder and runs without the other.
+
+### Frontend image
+
+Serves only static assets with nginx: the standalone page, `remoteEntry.js`,
+and the federated `TodoApp` module. No FastAPI, no database, no volume.
+
+```bash
+docker build -t todo-frontend ./frontend
+docker run --rm -p 8080:80 todo-frontend
+```
+
+- Plugin entry: http://localhost:8080/remoteEntry.js
+
+The standalone page at http://localhost:8080 renders, but cannot load todos on
+its own: its local SDK calls `/api` on the same origin, and this container has
+no API. For standalone CRUD, use the local development flow above.
+
+### Backend image
+
+Runs only FastAPI. Serves no frontend assets.
+
+```bash
+docker build -t todo-backend ./backend
+docker run --rm -p 8000:8000 \
+  -v todo-data:/data \
+  -v "$(pwd)/manifest.json:/app/manifest.json:ro" \
+  todo-backend
+```
+
+- API: http://localhost:8000/api/todos
+
+Todos are stored at `/data/todos.json`. Keep the `/data` volume and the data
+survives removing and recreating the container. `manifest.json` lives at the
+repository root, outside the backend build context, so it is mounted in; without
+that mount `GET /api/manifest` returns `404` and everything else works.
+
+### Both, with Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-Open http://localhost:8000. One container serves the API, the built frontend,
-and `remoteEntry.js`.
+| Service | URL |
+|---|---|
+| `todo-frontend` | http://localhost:8080 |
+| `todo-backend` | http://localhost:8000 |
 
-Todos are stored at `/data/todos.json` on the `todo-data` named volume, so they
-survive `docker compose restart` and `docker compose down` / `up`. To wipe the
-data:
+Todos survive `docker compose restart` and `docker compose down` / `up`, because
+they live on the `todo-data` named volume, which only the backend uses. To wipe
+the data:
 
 ```bash
 docker compose down -v
@@ -153,19 +203,21 @@ Titles are trimmed; empty or whitespace-only titles are rejected with `422`.
 
 Lives at the **repository root**: [`manifest.json`](manifest.json). It is:
 
-- copied into the Docker image at `/app/manifest.json`
-- served at runtime from `GET /api/manifest`, so the ITSM core can discover the
-  plugin without reading its files
+- mounted into the backend container at `/app/manifest.json`
+- served at runtime from `GET /api/manifest` on the backend, so the ITSM core
+  can discover the plugin without reading its files
 
 It declares the plugin id, navigation entry, API root, the SDK capabilities
 the plugin needs (`frontend.sdk`), and the Module Federation remote details.
+`backend.port` and `frontend.port` are the container ports of the two
+separate services.
 
 ### Module Federation remote
 
 | | |
 |---|---|
 | Remote name | `todo_plugin` |
-| Entry | `remoteEntry.js` (served from the plugin root) |
+| Entry | `remoteEntry.js` (served from the root of the frontend service) |
 | Exposed module | `./TodoApp` |
 | Shared dependencies | none |
 
@@ -223,7 +275,6 @@ relative paths, so `remoteEntry.js` works behind any proxy prefix.
 |---|---|---|
 | `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage path |
 | `MANIFEST_PATH` | `manifest.json` at the repo root (Docker: `/app/manifest.json`) | `/api/manifest` |
-| `FRONTEND_DIST` | `frontend/dist` (Docker: `/app/frontend/dist`) | Static frontend serving |
 | `VITE_API_TARGET` | `http://localhost:8000` | Dev proxy target for `npm run dev` |
 
 ## Known limitations
@@ -233,7 +284,7 @@ These are deliberate for a throwaway POC:
 - **JSON file storage.** The whole file is rewritten on every change. Fine for
   testing, not for real data volume.
 - **Single uvicorn worker only.** Writes are serialized with an in-process lock;
-  running more than one worker could lose updates. The Docker image pins
+  running more than one worker could lose updates. The backend image pins
   `--workers 1`.
 - **No authentication.** The plugin trusts its caller. In the target
   architecture the ITSM core authenticates the user before proxying requests.

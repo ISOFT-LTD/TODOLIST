@@ -1,13 +1,25 @@
+# Two independent services built from one repository. Neither depends on the
+# other: each image builds and runs on its own.
 services:
-  todo-plugin:
-    build: .
-    image: todo-plugin:1.0.0
-    container_name: todo-plugin
+  todo-frontend:
+    build: ./frontend
+    image: todo-frontend:1.0.0
+    container_name: todo-frontend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  todo-backend:
+    build: ./backend
+    image: todo-backend:1.0.0
+    container_name: todo-backend
     ports:
       - "8000:8000"
     volumes:
       # Keeps /data/todos.json across restarts and recreates.
       - todo-data:/data
+      # manifest.json lives at the repo root, outside the backend build context.
+      - ./manifest.json:/app/manifest.json:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]

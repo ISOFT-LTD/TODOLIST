@@ -1,12 +1,13 @@
 """Todo plugin - FastAPI microservice.
 
-Serves the CRUD API under /api/todos and, when a built frontend is present,
-the static frontend from the same origin. Data is stored in a JSON file.
+Serves the CRUD API under /api/todos. Data is stored in a JSON file. The
+frontend is a separate service (see frontend/) - this service serves no
+frontend assets.
 
 In production only the Core backend calls this service, server to server:
 Core authenticates the user's session, checks plugin permissions, and forwards
-the request. Standalone, the page and API share one origin. Neither case
-involves the browser making cross-origin calls here, so there is no CORS.
+the request. In local development the Vite dev server proxies /api here. Neither
+case involves the browser making cross-origin calls, so there is no CORS.
 """
 
 import json
@@ -15,7 +16,6 @@ from contextlib import asynccontextmanager
 from typing import List
 
 from fastapi import APIRouter, FastAPI, HTTPException, Response, status
-from fastapi.staticfiles import StaticFiles
 
 import models
 from database import init_storage
@@ -24,7 +24,6 @@ from schemas import TodoCreate, TodoOut, TodoUpdate
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(BASE_DIR)
 
-FRONTEND_DIST = os.getenv("FRONTEND_DIST", os.path.join(PROJECT_DIR, "frontend", "dist"))
 MANIFEST_PATH = os.getenv("MANIFEST_PATH", os.path.join(PROJECT_DIR, "manifest.json"))
 
 
@@ -101,12 +100,6 @@ def manifest():
         raise HTTPException(status_code=404, detail="Plugin manifest not found")
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Plugin manifest is not valid JSON")
-
-
-# Mounted last so the /api routes above take precedence. Only present once the
-# frontend has been built (npm run build) - in dev, Vite serves it instead.
-if os.path.isdir(FRONTEND_DIST):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 
 
 if __name__ == "__main__":
