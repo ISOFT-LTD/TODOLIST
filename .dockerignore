@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+.venv
+venv
+.env
+.env.*
+backend/todos.json
+data
+*.log
+.git
+.gitignore
+.vscode
+.idea
+README.md

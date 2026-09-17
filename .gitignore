@@ -1,0 +1,38 @@
+# --- Dependencies ---------------------------------------------------------
+node_modules/
+
+# --- Frontend build output ------------------------------------------------
+frontend/dist/
+.vite/
+.__mf__temp/
+@mf-types/
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# --- Local environment files (examples stay committed) --------------------
+.env
+.env.*
+!.env.example
+
+# --- Runtime Todo data ----------------------------------------------------
+# Local runs write backend/todos.json. Docker keeps its copy on the todo-data
+# volume; /data/ covers switching that to a bind mount.
+backend/todos.json
+/data/
+*.tmp
+
+# --- Logs -----------------------------------------------------------------
+*.log
+npm-debug.log*
+
+# --- OS / editor ----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

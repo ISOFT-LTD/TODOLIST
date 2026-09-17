@@ -1,0 +1,29 @@
+{
+  "id": "todo-plugin",
+  "name": "Todo List",
+  "version": "1.0.0",
+  "description": "Todo List plugin POC",
+  "navigation": {
+    "label": "Todo List",
+    "path": "/plugins/todo"
+  },
+  "backend": {
+    "apiPrefix": "/api/todos",
+    "healthCheck": "/api/health",
+    "manifest": "/api/manifest",
+    "port": 8000,
+    "workers": 1
+  },
+  "frontend": {
+    "type": "module-federation",
+    "remoteName": "todo_plugin",
+    "remoteEntry": "remoteEntry.js",
+    "exposedModule": "./TodoApp",
+    "mountFunction": "mount",
+    "shared": []
+  },
+  "permissions": [
+    "todo:read",
+    "todo:write"
+  ]
+}
