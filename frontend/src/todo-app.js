@@ -4,10 +4,18 @@
  * Framework-agnostic on purpose: the shell calls mount() from a React effect,
  * so the plugin never bundles or shares React.
  *
- *   const unmount = mount(element, {
- *     apiBase: 'https://core.example/plugins/todo/api/todos',
- *     credentials: 'include',
- *   });
+ * The plugin reaches the outside world only through the SDK it is given. It
+ * never imports Core code and knows nothing about URLs, sessions or transport:
+ * in the ITSM shell, Core's SDK routes sdk.api through Core; standalone, the
+ * local development SDK (dev-sdk.js) calls the Todo service directly.
+ *
+ *   const unmount = mount(element, { sdk });
+ *
+ * SDK contract this plugin relies on:
+ *   sdk.api.get(path) / post(path, body) / put(path, body) / delete(path)
+ *   - path is relative to this plugin's API, e.g. '/todos/1'
+ *   - resolves to the parsed JSON response, or null when there is no body
+ *   - rejects with an Error whose message is safe to show the user
  */
 
 import styles from './styles.css?inline';
@@ -26,27 +34,28 @@ const TEMPLATE = `
 
 const instances = new WeakMap();
 
+const API_METHODS = ['get', 'post', 'put', 'delete'];
+
 /**
  * Render the todo app into `el`.
  *
  * @param {HTMLElement} el Container owned by the host.
- * @param {object} [options]
- * @param {string} [options.apiBase='/api/todos'] Todos endpoint. The shell
- *   points this at the core backend, which proxies to the microservice.
- * @param {RequestCredentials} [options.credentials='same-origin'] Use
- *   'include' so the shell's session cookie reaches the core backend.
+ * @param {object} options
+ * @param {object} options.sdk Host SDK. Only sdk.api is used.
  * @returns {() => void} Unmount function.
  */
-export function mount(el, options = {}) {
+export function mount(el, { sdk } = {}) {
   if (!(el instanceof HTMLElement)) {
     throw new Error('todo-plugin: mount() needs a container element');
   }
+  const missing = API_METHODS.filter((m) => typeof sdk?.api?.[m] !== 'function');
+  if (missing.length) {
+    throw new Error(`todo-plugin: mount() needs { sdk } with sdk.api.${missing.join(', sdk.api.')}`);
+  }
+  const { api } = sdk;
 
   // Remount cleanly. React StrictMode mounts, unmounts, then mounts again.
   unmount(el);
-
-  const apiBase = (options.apiBase ?? '/api/todos').replace(/\/+$/, '');
-  const credentials = options.credentials ?? 'same-origin';
 
   // attachShadow() can only run once per element, so reuse it on remount.
   const root = el.shadowRoot ?? el.attachShadow({ mode: 'open' });
@@ -59,24 +68,6 @@ export function mount(el, options = {}) {
 
   let destroyed = false;
   let editingId = null;
-
-  const api = async (method, path = '', body) => {
-    const res = await fetch(apiBase + path, {
-      method,
-      credentials,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const { detail } = await res.json().catch(() => ({}));
-      throw new Error(
-        typeof detail === 'string' ? detail
-          : Array.isArray(detail) ? (detail[0]?.msg ?? res.statusText)
-          : res.statusText
-      );
-    }
-    return res.status === 204 ? null : res.json();
-  };
 
   const showError = (msg) => {
     if (destroyed) return;
@@ -142,7 +133,7 @@ export function mount(el, options = {}) {
   async function load() {
     try {
       showError('');
-      render(await api('GET'));
+      render(await api.get('/todos'));
     } catch (err) {
       showError(err.message);
     }
@@ -150,7 +141,7 @@ export function mount(el, options = {}) {
 
   async function update(id, changes) {
     try {
-      await api('PUT', '/' + id, changes);
+      await api.put(`/todos/${id}`, changes);
       editingId = null;
       load();
     } catch (err) {
@@ -160,7 +151,7 @@ export function mount(el, options = {}) {
 
   async function remove(id) {
     try {
-      await api('DELETE', '/' + id);
+      await api.delete(`/todos/${id}`);
       load();
     } catch (err) {
       showError(err.message);
@@ -172,7 +163,7 @@ export function mount(el, options = {}) {
     const title = input.value.trim();
     if (!title) return;
     try {
-      await api('POST', '', { title });
+      await api.post('/todos', { title });
       input.value = '';
       load();
     } catch (err) {

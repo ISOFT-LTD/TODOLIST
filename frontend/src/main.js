@@ -1,5 +1,6 @@
-// Standalone entry: runs the plugin on its own page, outside the ITSM shell.
-// Same-origin /api/todos - Vite proxies it in dev, FastAPI serves it in Docker.
+// Standalone entry: runs the plugin outside the ITSM shell, with the local
+// development SDK standing in for the SDK that Core provides.
+import { createLocalSdk } from './dev-sdk.js';
 import { mount } from './todo-app.js';
 
-mount(document.getElementById('app'));
+mount(document.getElementById('app'), { sdk: createLocalSdk() });

@@ -8,7 +8,7 @@
     "path": "/plugins/todo"
   },
   "backend": {
-    "apiPrefix": "/api/todos",
+    "apiRoot": "/api",
     "healthCheck": "/api/health",
     "manifest": "/api/manifest",
     "port": 8000,
@@ -20,6 +20,7 @@
     "remoteEntry": "remoteEntry.js",
     "exposedModule": "./TodoApp",
     "mountFunction": "mount",
+    "sdk": ["api"],
     "shared": []
   },
   "permissions": [

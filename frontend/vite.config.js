@@ -22,8 +22,8 @@ export default defineConfig({
   ],
 
   // Dev-only proxy: the browser talks to the Vite server on :5173, which forwards
-  // every /api request to the FastAPI service. That keeps the frontend on
-  // same-origin fetch('/api/todos') calls with no backend URL hardcoded anywhere.
+  // every /api request to the FastAPI service. That lets the local development
+  // SDK (src/dev-sdk.js) make same-origin calls with no backend URL hardcoded.
   server: {
     port: 5173,
     proxy: {

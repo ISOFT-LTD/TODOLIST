@@ -15,25 +15,32 @@ A small Todo List packaged the way a future ITSM plugin will be:
 - a **`manifest.json`** describing the plugin to the host
 - a **Docker image** that ships all of the above as one unit
 
-In the target architecture the browser never talks to the plugin directly:
+In the target architecture the browser never talks to the Todo service
+directly:
 
 ```
-ITSM shell (React)  ──loads remoteEntry.js──┐
-        │                                   │
-        │ API calls (session cookie)        │
-        ▼                                   ▼
-ITSM core backend (FastAPI)  ──proxies /plugins/todo-plugin/*──►  this plugin (FastAPI)
-                                                                        │
-                                                                        ▼
-                                                                  /data/todos.json
+Plugin UI (inside the ITSM React shell)
+        │  sdk.api.get('/todos')
+        ▼
+Core SDK  ──►  Core FastAPI
+                 • authenticates the user's HttpOnly session
+                 • checks the plugin permissions
+                 • looks up the plugin's backend in the plugin registry
+                 │
+                 │  server-to-server request
+                 ▼
+               Todo FastAPI (this repo)  ──►  /data/todos.json
 ```
+
+The plugin knows nothing about cookies, credentials, CORS, the Core URL, or
+the Todo service URL. It only calls the SDK it is given.
 
 ## Project structure
 
 ```
 .
 ├── backend/
-│   ├── main.py            FastAPI app: routes, CORS, manifest + static serving
+│   ├── main.py            FastAPI app: routes, manifest + static serving
 │   ├── models.py          Todo record and CRUD over the JSON store
 │   ├── schemas.py         Pydantic request/response schemas
 │   ├── database.py        JSON file storage (read, atomic write, init)
@@ -41,8 +48,9 @@ ITSM core backend (FastAPI)  ──proxies /plugins/todo-plugin/*──►  this
 ├── frontend/
 │   ├── index.html         Standalone page
 │   ├── src/
-│   │   ├── todo-app.js    The plugin UI, exposed as mount(el, options)
+│   │   ├── todo-app.js    The plugin UI, exposed as mount(el, { sdk })
 │   │   ├── styles.css     Scoped to a shadow root
+│   │   ├── dev-sdk.js     Local SDK for standalone development only
 │   │   └── main.js        Standalone entry point
 │   ├── public/
 │   ├── vite.config.js     Module Federation remote + dev proxy
@@ -91,9 +99,11 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/api` to the backend on
-port 8000, so the frontend only ever calls the relative path `/api/todos` — no
-backend URL is hardcoded.
+Open http://localhost:5173. Standalone, the plugin is mounted with the local
+development SDK ([`frontend/src/dev-sdk.js`](frontend/src/dev-sdk.js)), whose
+`sdk.api` calls the Todo FastAPI directly on the same origin. The Vite dev
+server proxies `/api` to the backend on port 8000, so no backend URL is
+hardcoded.
 
 To have FastAPI serve the frontend itself on port 8000 instead, build it once:
 
@@ -147,8 +157,8 @@ Lives at the **repository root**: [`manifest.json`](manifest.json). It is:
 - served at runtime from `GET /api/manifest`, so the ITSM core can discover the
   plugin without reading its files
 
-It declares the plugin id, navigation entry, API prefix, and the Module
-Federation remote details.
+It declares the plugin id, navigation entry, API root, the SDK capabilities
+the plugin needs (`frontend.sdk`), and the Module Federation remote details.
 
 ### Module Federation remote
 
@@ -165,14 +175,43 @@ so the plugin does not bundle or share React with the shell:
 ```js
 const { mount } = await loadRemote('todo_plugin/TodoApp');
 
-const unmount = mount(containerElement, {
-  apiBase: 'https://<core>/plugins/todo-plugin/api/todos',
-  credentials: 'include',   // send the shell's session cookie to the core
-});
+const unmount = mount(containerElement, { sdk });
 
 // later
 unmount();
 ```
+
+### SDK contract
+
+The plugin never imports Core code. Every connection goes through the SDK the
+host passes to `mount`. Only `sdk.api` is used for now:
+
+| Method | Example call from the plugin |
+|---|---|
+| `sdk.api.get(path)` | `sdk.api.get('/todos')` |
+| `sdk.api.post(path, body)` | `sdk.api.post('/todos', { title })` |
+| `sdk.api.put(path, body)` | `sdk.api.put('/todos/1', { done: true })` |
+| `sdk.api.delete(path)` | `sdk.api.delete('/todos/1')` |
+
+- `path` is relative to the plugin's API root (`backend.apiRoot` in the
+  manifest, `/api`).
+- Each method resolves to the parsed JSON response, or `null` when there is no
+  body, and rejects with an `Error` whose message is safe to show the user.
+- `mount` throws immediately if `sdk.api` is missing any of these methods.
+
+Two implementations exist:
+
+- **Core's SDK (production)** — sends the call to Core FastAPI, which
+  authenticates, checks permissions, and forwards it server-to-server to
+  `<registered backend><apiRoot><path>`.
+- **Local SDK (standalone development)** —
+  [`frontend/src/dev-sdk.js`](frontend/src/dev-sdk.js) calls `/api<path>` on
+  the same origin. It is imported only by the standalone entry, never by the
+  federated module.
+
+Because the plugin depends only on this contract, Core can refactor freely, and
+the plugin could later move into an iframe by changing only the SDK
+implementation.
 
 The UI renders inside a shadow root, so the shell's global CSS cannot restyle
 the plugin and the plugin's CSS cannot leak into the shell. Build output uses
@@ -183,7 +222,6 @@ relative paths, so `remoteEntry.js` works behind any proxy prefix.
 | Variable | Default | Used by |
 |---|---|---|
 | `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage path |
-| `CORS_ORIGINS` | `localhost:5173`, `localhost:3000` | Comma-separated origins allowed to call the backend directly |
 | `MANIFEST_PATH` | `manifest.json` at the repo root (Docker: `/app/manifest.json`) | `/api/manifest` |
 | `FRONTEND_DIST` | `frontend/dist` (Docker: `/app/frontend/dist`) | Static frontend serving |
 | `VITE_API_TARGET` | `http://localhost:8000` | Dev proxy target for `npm run dev` |
