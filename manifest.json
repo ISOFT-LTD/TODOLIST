@@ -12,15 +12,15 @@
   },
 
   "routes": {
-    "frontend": "/plugins/todo",
+    "frontend": "/plugins/ui/todo",
     "backend": "/api/plugins/todo"
   },
 
   "navigation": [
     {
       "label": "Todo List",
-      "path": "/plugins/todo",
-      "icon": "check-square",
+      "path": "/plugins/ui/todo",
+      "icon": "fa-square-check",
       "order": 100,
       "permission": "todo:read"
     }
