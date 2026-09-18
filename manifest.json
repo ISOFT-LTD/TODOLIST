@@ -49,12 +49,6 @@
   "permissions": [
     { "key": "todo:read", "description": "View todo items" },
     { "key": "todo:write", "description": "Create, edit and delete todo items" }
-  ],
-
-
-  "deploy": {
-    "frontend": { "image": "ghcr.io/OWNER/todo-plugin-frontend", "port": 80 },
-    "backend": { "image": "ghcr.io/OWNER/todo-plugin-backend", "port": 8000, "workers": 1 }
-  }
+  ]
 }
 
