@@ -10,15 +10,12 @@
   "backend": {
     "apiRoot": "/api",
     "healthCheck": "/api/health",
-    "manifest": "/api/manifest",
-    "port": 8000,
-    "workers": 1
+    "manifest": "/api/manifest"
   },
   "frontend": {
     "type": "module-federation",
-    "port": 80,
     "remoteName": "todo_plugin",
-    "remoteEntry": "remoteEntry.js",
+    "remoteEntry": "/remoteEntry.js",
     "exposedModule": "./TodoApp",
     "mountFunction": "mount",
     "sdk": ["api"],
