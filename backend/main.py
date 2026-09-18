@@ -6,8 +6,8 @@ frontend assets.
 
 In production only the Core backend calls this service, server to server:
 Core authenticates the user's session, checks plugin permissions, and forwards
-the request. In local development the Vite dev server proxies /api here. Neither
-case involves the browser making cross-origin calls, so there is no CORS.
+the request. In local development the Vite dev server proxies /api here.
+CORS is enabled only for a shell running locally on http(s)://localhost:3000.
 """
 
 import json
@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from typing import List
 
 from fastapi import APIRouter, FastAPI, HTTPException, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 
 import models
 from database import init_storage
@@ -39,6 +40,17 @@ app = FastAPI(
     version="1.0.0",
     description="Todo List plugin POC",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://localhost:3000",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ---------------------------------------------------------------------------
