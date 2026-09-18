@@ -178,6 +178,25 @@ the data:
 docker compose down -v
 ```
 
+### Published images (GHCR)
+
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
+builds both images and pushes them to GitHub Container Registry:
+
+| Trigger | Tags |
+|---|---|
+| Push to `main` | `main`, `sha-<short>` |
+| Tag `v1.2.3` | `1.2.3`, `1.2`, `latest`, `sha-<short>` |
+| Pull request | build only, nothing pushed |
+
+```bash
+docker pull ghcr.io/zoughaib-sally/todo-backend:main
+docker pull ghcr.io/zoughaib-sally/todo-frontend:main
+```
+
+New GHCR packages are private by default; make them public (or grant access)
+under the package settings on GitHub before pulling without a login.
+
 ## API endpoints
 
 | Method | Path | Description | Success | Errors |
