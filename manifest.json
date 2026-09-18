@@ -1,28 +1,60 @@
 {
-  "id": "todo-plugin",
+  "manifestVersion": 1,
+  "id": "todo",
   "name": "Todo List",
   "version": "1.0.0",
   "description": "Todo List plugin POC",
-  "navigation": {
-    "label": "Todo List",
-    "path": "/plugins/todo"
+  "icon": "check-square",
+
+  "compatibility": {
+    "mountApiVersion": 1,
+    "coreMin": "1.0.0"
   },
-  "backend": {
-    "apiRoot": "/api",
-    "healthCheck": "/api/health",
-    "manifest": "/api/manifest"
+
+  "routes": {
+    "frontend": "/plugins/todo",
+    "backend": "/api/plugins/todo"
   },
+
+  "navigation": [
+    {
+      "label": "Todo List",
+      "path": "/plugins/todo",
+      "icon": "check-square",
+      "order": 100,
+      "permission": "todo:read"
+    }
+  ],
+
   "frontend": {
     "type": "module-federation",
+    "bundler": "vite",
     "remoteName": "todo_plugin",
-    "remoteEntry": "/remoteEntry.js",
+    "remoteEntry": "remoteEntry.js",
+    "mfManifest": "mf-manifest.json",
     "exposedModule": "./TodoApp",
     "mountFunction": "mount",
+    "unmountFunction": "unmount",
     "sdk": ["api"],
     "shared": []
   },
+
+  "backend": {
+    "apiRoot": "/api",
+    "healthCheck": "/api/health",
+    "manifest": "/api/manifest",
+    "openapi": "/api/openapi.json"
+  },
+
   "permissions": [
-    "todo:read",
-    "todo:write"
-  ]
+    { "key": "todo:read", "description": "View todo items" },
+    { "key": "todo:write", "description": "Create, edit and delete todo items" }
+  ],
+
+
+  "deploy": {
+    "frontend": { "image": "ghcr.io/OWNER/todo-plugin-frontend", "port": 80 },
+    "backend": { "image": "ghcr.io/OWNER/todo-plugin-backend", "port": 8000, "workers": 1 }
+  }
 }
+
