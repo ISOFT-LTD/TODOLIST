@@ -11,6 +11,10 @@
  *
  *   const unmount = mount(element, { sdk });
  *
+ * On mount it asks the API who is calling (GET /me) and, for a user who may
+ * only read, hides the controls they cannot use - the service refuses those
+ * writes anyway; this just saves a click that would fail.
+ *
  * SDK contract this plugin relies on:
  *   sdk.api.get(path) / post(path, body) / put(path, body) / delete(path)
  *   - path is relative to this plugin's API, e.g. '/todos/1'
@@ -23,6 +27,7 @@ import styles from './styles.css?inline';
 const TEMPLATE = `
   <main class="todo">
     <h1>Todo List</h1>
+    <p class="who" hidden></p>
     <form class="add-form">
       <input type="text" class="new-title" placeholder="What needs doing?" autocomplete="off" required>
       <button type="submit" class="primary">Add</button>
@@ -65,9 +70,12 @@ export function mount(el, { sdk } = {}) {
   const form = root.querySelector('.add-form');
   const input = root.querySelector('.new-title');
   const errorBox = root.querySelector('.error');
+  const who = root.querySelector('.who');
 
   let destroyed = false;
   let editingId = null;
+  // Until GET /me says otherwise. The service enforces it either way.
+  let canWrite = true;
 
   const showError = (msg) => {
     if (destroyed) return;
@@ -89,6 +97,7 @@ export function mount(el, { sdk } = {}) {
       const check = document.createElement('input');
       check.type = 'checkbox';
       check.checked = todo.done;
+      check.disabled = !canWrite;
       check.onchange = () => update(todo.id, { done: check.checked });
       li.append(check);
 
@@ -118,15 +127,30 @@ export function mount(el, { sdk } = {}) {
         const editBtn = document.createElement('button');
         editBtn.textContent = 'Edit';
         editBtn.onclick = () => { editingId = todo.id; load(); };
-        li.append(editBtn);
+        if (canWrite) li.append(editBtn);
       }
 
-      const del = document.createElement('button');
-      del.textContent = 'Delete';
-      del.onclick = () => remove(todo.id);
-      li.append(del);
+      if (canWrite) {
+        const del = document.createElement('button');
+        del.textContent = 'Delete';
+        del.onclick = () => remove(todo.id);
+        li.append(del);
+      }
 
       list.append(li);
+    }
+  }
+
+  async function loadIdentity() {
+    try {
+      const me = await api.get('/me');
+      canWrite = Boolean(me?.can_write);
+      const name = me?.username || '';
+      who.textContent = name ? `Signed in as ${name}${canWrite ? '' : ' - read only'}` : '';
+      who.hidden = !who.textContent;
+      form.hidden = !canWrite;
+    } catch {
+      // The list request that follows reports anything that really is wrong.
     }
   }
 
@@ -176,7 +200,7 @@ export function mount(el, { sdk } = {}) {
     root.innerHTML = '';
   });
 
-  load();
+  loadIdentity().then(load);
   return () => unmount(el);
 }
 

@@ -42,3 +42,4 @@ li input[type=text] { padding: 4px 8px; }
 .empty { color: #9096a0; text-align: center; padding: 24px 0; }
 .error { color: #b42318; text-align: center; padding: 12px 0; }
 [hidden] { display: none !important; }
+.who { margin: -12px 0 20px; font-size: 13px; color: #6b7280; }

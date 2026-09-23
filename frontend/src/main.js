@@ -1,6 +1,7 @@
-// Standalone entry: runs the plugin outside the ITSM shell, with the local
-// development SDK standing in for the SDK that Core provides.
-import { createLocalSdk } from './dev-sdk.js';
+// Standalone entry: the page Cobalt Core serves at /apps/todo/. It mounts the
+// same federated module the ITSM shell will load, with the SDK that reaches
+// this app's API through Core.
+import { createCoreSdk } from './core-sdk.js';
 import { mount } from './todo-app.js';
 
-mount(document.getElementById('app'), { sdk: createLocalSdk() });
+mount(document.getElementById('app'), { sdk: createCoreSdk() });
