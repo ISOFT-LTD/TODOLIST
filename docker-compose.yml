@@ -1,25 +1,36 @@
-# Two independent services built from one repository. Neither depends on the
-# other: each image builds and runs on its own.
+# The Todo app, installed beside Cobalt Core.
+#
+#   browser --> Core /apps/todo/...  --> todo-frontend (:8080) --> todo-backend
+#               (session cookie)          page + /api hand-off      verifies Core's JWT
+#
+# The browser only ever talks to Core. todo-frontend is published on this
+# machine's loopback address alone - Core is given it as
+# COBALT_APP_URL_TODO=http://127.0.0.1:8080 - and todo-backend has no published
+# port at all. Settings come from a .env file beside this one (.env.example).
 services:
-  todo-frontend:
-    build: ./frontend
-    image: todo-frontend:1.0.0
-    container_name: todo-frontend
-    ports:
-      - "8080:80"
-    restart: unless-stopped
-
   todo-backend:
     build: ./backend
-    image: todo-backend:1.0.0
+    image: todo-backend:1.1.0
     container_name: todo-backend
-    ports:
-      - "8000:8000"
+    environment:
+      COBALT_AUDIENCE: todo
+      COBALT_ISSUER: ${COBALT_ISSUER:-cobalt-core}
+      COBALT_TENANT_ID: ${COBALT_TENANT_ID:-}
+      # Core's public keys: its JWKS URL, or a saved copy placed in ./cobalt/.
+      COBALT_CORE_JWKS_URL: ${COBALT_CORE_JWKS_URL:-}
+      COBALT_CORE_JWKS_FILE: ${COBALT_CORE_JWKS_FILE:-}
     volumes:
       # Keeps /data/todos.json across restarts and recreates.
       - todo-data:/data
       # manifest.json lives at the repo root, outside the backend build context.
       - ./manifest.json:/app/manifest.json:ro
+      # For the JWKS-file option: COBALT_CORE_JWKS_FILE=/run/cobalt/core-jwks.json
+      - ./cobalt:/run/cobalt:ro
+    extra_hosts:
+      # Core's hostname resolves to this machine inside the container, so a
+      # JWKS URL on Core's real name reaches the Core running beside it - and
+      # passes TLS verification against Core's certificate.
+      - "${CORE_HOSTNAME:-core.invalid}:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
@@ -27,6 +38,21 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  todo-frontend:
+    build: ./frontend
+    image: todo-frontend:1.1.0
+    container_name: todo-frontend
+    environment:
+      TODO_BACKEND_URL: http://todo-backend:8000
+    ports:
+      # Loopback only: Core, beside it, is the one caller. Not for a browser.
+      - "${TODO_BIND_ADDRESS:-127.0.0.1}:${TODO_PORT:-8080}:80"
+    depends_on:
+      # nginx resolves the backend's name when it starts.
+      todo-backend:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   todo-data:

@@ -40,3 +40,6 @@ Thumbs.db
 # --- Local stand-in for Core -------------------------------------------
 # dev/fake_core.py writes a throwaway public key here on every start.
 dev/.dev-jwks.json
+
+# --- Core's public keys, saved per deployment (see cobalt/README.md) ------
+cobalt/*.json
