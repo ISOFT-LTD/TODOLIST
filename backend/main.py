@@ -1,13 +1,25 @@
-"""Todo plugin - FastAPI microservice.
+"""Todo app - FastAPI service behind Cobalt Core.
 
-Serves the CRUD API under /api/todos. Data is stored in a JSON file. The
-frontend is a separate service (see frontend/) - this service serves no
-frontend assets.
+Serves the CRUD API under /api/todos. Data is stored in a JSON file.
 
-In production only the Core backend calls this service, server to server:
-Core authenticates the user's session, checks plugin permissions, and forwards
-the request. In local development the Vite dev server proxies /api here.
-CORS is enabled only for a shell running locally on http(s)://localhost:3000.
+THE BROWSER NEVER CALLS THIS SERVICE. It talks to Cobalt Core only, at
+``/apps/todo/...``, with its session cookie. Core checks the session and that
+the user may reach this app at all, mints a short-lived JWT for this audience,
+and forwards the request here with ``Authorization: Bearer <jwt>``. This
+service verifies that token on every call (auth.py) and decides what the user
+may do from the permissions inside it. It holds no session, no cookie and no
+password, and never touches Core's database.
+
+Which is why there is no CORS middleware: no browser origin is ever allowed to
+call this service directly.
+
+    GET    /api/todos          list this user's todos          todo.todo.read
+    POST   /api/todos          create                          todo.todo.all
+    PUT    /api/todos/{id}     update title and/or done        todo.todo.all
+    DELETE /api/todos/{id}     delete                          todo.todo.all
+    GET    /api/me             who Core says is calling        any valid token
+    GET    /api/health         liveness                        open
+    GET    /api/manifest       this app's manifest, for Core   open
 """
 
 import json
@@ -15,10 +27,10 @@ import os
 from contextlib import asynccontextmanager
 from typing import List
 
-from fastapi import APIRouter, FastAPI, HTTPException, Response, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
 
 import models
+from auth import CAN_READ, CAN_WRITE, can_read, can_write, identity, owner_of
 from database import init_storage
 from schemas import TodoCreate, TodoOut, TodoUpdate
 
@@ -36,71 +48,86 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Todo Plugin",
-    version="1.0.0",
-    description="Todo List plugin POC",
+    title="Todo List",
+    version="1.1.0",
+    description="Todo List app, served behind Cobalt Core's /apps proxy",
     lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://localhost:3000",
-    ],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # The schema sits under /api like everything else, where the manifest says.
+    # No interactive docs: this is a private service, reached only by Core.
+    openapi_url="/api/openapi.json",
+    docs_url=None,
+    redoc_url=None,
 )
 
 # ---------------------------------------------------------------------------
-# Routes
+# Todos - every route needs Core's identity and the right permission
 # ---------------------------------------------------------------------------
 
 todos_router = APIRouter(prefix="/api/todos", tags=["Todos"])
 
 
 @todos_router.get("", response_model=List[TodoOut])
-def list_todos():
-    """Get all todos, newest first."""
-    return models.list_todos()
+def list_todos(who=Depends(can_read)):
+    """This user's todos, newest first."""
+    return models.list_todos(*owner_of(who))
 
 
 @todos_router.post("", response_model=TodoOut, status_code=status.HTTP_201_CREATED)
-def create_todo(todo: TodoCreate):
-    """Create a new todo."""
-    return models.create_todo(todo.title)
+def create_todo(todo: TodoCreate, who=Depends(can_write)):
+    """Create a new todo for this user."""
+    return models.create_todo(*owner_of(who), todo.title)
 
 
 @todos_router.put("/{todo_id}", response_model=TodoOut)
-def update_todo(todo_id: int, todo: TodoUpdate):
-    """Update a todo title, its completion state, or both."""
-    updated = models.update_todo(todo_id, todo.title, todo.done)
+def update_todo(todo_id: int, todo: TodoUpdate, who=Depends(can_write)):
+    """Update a todo's title, its completion state, or both."""
+    updated = models.update_todo(*owner_of(who), todo_id, todo.title, todo.done)
     if not updated:
         raise HTTPException(status_code=404, detail="Todo not found")
     return updated
 
 
 @todos_router.delete("/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_todo(todo_id: int):
+def delete_todo(todo_id: int, who=Depends(can_write)):
     """Delete a todo."""
-    if not models.delete_todo(todo_id):
+    if not models.delete_todo(*owner_of(who), todo_id):
         raise HTTPException(status_code=404, detail="Todo not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 app.include_router(todos_router)
 
+# ---------------------------------------------------------------------------
+# Identity, health, manifest
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/me", tags=["Identity"])
+def whoami(who=Depends(identity)):
+    """Who Core says is calling, and what they may do here.
+
+    The UI uses ``can_write`` to hide the controls a read-only user cannot
+    use, rather than letting them click and fail.
+    """
+    return {
+        "subject": who.subject,
+        "username": who.username,
+        "tenant_id": who.tenant_id,
+        "can_read": who.has_permission(CAN_READ),
+        "can_write": who.has_permission(CAN_WRITE),
+    }
+
 
 @app.get("/api/health", tags=["Health"])
 def health():
-    """Liveness probe for Docker and the future plugin host."""
+    """Liveness probe. Open, and says nothing about anyone."""
     return {"status": "ok"}
 
 
-@app.get("/api/manifest", tags=["Plugin"])
+@app.get("/api/manifest", tags=["App"])
 def manifest():
-    """Return this plugin's manifest so an ITSM host can discover it.
+    """This app's manifest. Open: Core reads it to install the app, and it
+    holds nothing secret.
 
     Read per request rather than cached, so editing manifest.json during the
     POC does not need a restart.
@@ -109,9 +136,9 @@ def manifest():
         with open(MANIFEST_PATH, "r", encoding="utf-8") as fh:
             return json.load(fh)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Plugin manifest not found")
+        raise HTTPException(status_code=404, detail="App manifest not found")
     except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Plugin manifest is not valid JSON")
+        raise HTTPException(status_code=500, detail="App manifest is not valid JSON")
 
 
 if __name__ == "__main__":
