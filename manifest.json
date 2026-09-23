@@ -1,25 +1,32 @@
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
   "id": "todo",
   "name": "Todo List",
-  "version": "1.0.0",
-  "description": "Todo List plugin POC",
-  "icon": "check-square",
+  "version": "1.1.0",
+  "description": "A personal todo list, served behind Cobalt Core's /apps proxy",
+  "icon": "fa-square-check",
 
   "compatibility": {
     "mountApiVersion": 1,
+    "coreIdentity": 1,
     "coreMin": "1.0.0"
   },
 
+  "core": {
+    "tabKeys": ["todo"],
+    "roleNames": [],
+    "tokenTtlSeconds": 180
+  },
+
   "routes": {
-    "frontend": "/plugins/ui/todo",
-    "backend": "/api/plugins/todo"
+    "frontend": "/apps/todo/",
+    "backend": "/apps/todo/api"
   },
 
   "navigation": [
     {
       "label": "Todo List",
-      "path": "/plugins/ui/todo",
+      "path": "/apps/todo/",
       "icon": "fa-square-check",
       "order": 100,
       "permission": "todo:read"
@@ -47,8 +54,7 @@
   },
 
   "permissions": [
-    { "key": "todo:read", "description": "View todo items" },
-    { "key": "todo:write", "description": "Create, edit and delete todo items" }
+    { "key": "todo:read", "description": "View todo items", "tab": "todo", "level": "read" },
+    { "key": "todo:write", "description": "Create, edit and delete todo items", "tab": "todo", "level": "all" }
   ]
 }
-
