@@ -36,3 +36,7 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# --- Local stand-in for Core -------------------------------------------
+# dev/fake_core.py writes a throwaway public key here on every start.
+dev/.dev-jwks.json
