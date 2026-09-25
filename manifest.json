@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "todo",
   "name": "Todo List",
-  "version": "1.1.0",
-  "description": "A personal todo list, served behind Cobalt Core's /apps proxy",
+  "version": "1.2.0",
+  "description": "A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy",
   "icon": "fa-square-check",
 
   "compatibility": {
@@ -25,11 +25,23 @@
 
   "navigation": [
     {
-      "label": "Todo List",
-      "path": "/apps/todo/",
+      "label": "To do",
       "icon": "fa-square-check",
       "order": 100,
-      "permission": "todo:read"
+      "children": [
+        {
+          "label": "To do List",
+          "path": "/plugins/ui/todo",
+          "permission": "todo:read",
+          "order": 100
+        },
+        {
+          "label": "Predefined to do list",
+          "path": "/plugins/ui/todo/predefined",
+          "permission": "todo:read",
+          "order": 101
+        }
+      ]
     }
   ],
 
@@ -54,7 +66,7 @@
   },
 
   "permissions": [
-    { "key": "todo:read", "description": "View todo items", "tab": "todo", "level": "read" },
-    { "key": "todo:write", "description": "Create, edit and delete todo items", "tab": "todo", "level": "all" }
+    { "key": "todo:read", "description": "View todo items and predefined lists", "tab": "todo", "level": "read" },
+    { "key": "todo:write", "description": "Create, edit and delete todo items and predefined lists", "tab": "todo", "level": "all" }
   ]
 }

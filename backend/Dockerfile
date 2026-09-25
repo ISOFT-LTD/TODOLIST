@@ -17,7 +17,7 @@ COPY . ./
 # Mount it at MANIFEST_PATH (docker-compose.yml does); without it,
 # GET /api/manifest returns 404 and everything else works normally.
 
-# todos.json lives on a volume so todos survive container rebuilds.
+# The JSON stores live on a volume so data survives container rebuilds.
 RUN mkdir -p /data
 VOLUME ["/data"]
 

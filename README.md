@@ -7,7 +7,8 @@
 
 ## What this POC is
 
-A small Todo List packaged the way a Cobalt Core application is:
+A small Todo List, with reusable predefined lists, packaged the way a Cobalt
+Core application is:
 
 - a **FastAPI service** that owns its own API and data, and trusts only the
   identity Cobalt Core signs
@@ -41,8 +42,9 @@ Core's database.
 ## Install it into Cobalt Core
 
 What you get: `https://<core>:3008/apps/todo/` shows the Todo List to anyone
-logged in to Cobalt who holds the **todo** tab - Read to view, All to edit.
-Every user has their own list.
+logged in to Cobalt who holds the **todo** tab - Read to view, All to edit -
+and `https://<core>:3008/apps/todo/predefined` their predefined lists. Every
+user has their own.
 
 **Core needs** (all on `working-merge-integration`): delegated identity
 configured (`CORE_JWT_PRIVATE_KEY_FILE` - the startup log says
@@ -100,7 +102,7 @@ app's manifest from the running app and registers it:
 docker compose exec app python scripts/install_application.py --from-service todo
 ```
 
-It prints `Todo List (todo 1.1.0): registered` and a checklist. Installing
+It prints `Todo List (todo 1.2.0): registered` and a checklist. Installing
 again after an upgrade is the same command. From a browser instead, as an
 administrator: `POST /auth/applications/install` with this repository's
 `manifest.json` as the body.
@@ -110,7 +112,8 @@ grant a role the **todo** tab on the roles screen: **Read** to view, **All** to
 add, edit, tick and delete.
 
 **7. Open it:** log in to Cobalt, then in the same browser go to
-`https://<core-hostname>:3008/apps/todo/`.
+`https://<core-hostname>:3008/apps/todo/`. The two links at the top switch
+between the To do List and the Predefined to do lists.
 
 ### When it does not work
 
@@ -133,15 +136,17 @@ TODOLIST/
 ├── cobalt/                  optional saved copy of Core's public keys
 ├── dev/fake_core.py         a local stand-in for Core, for development
 ├── backend/                 FastAPI service
-│   ├── main.py              routes; every todo route needs Core's identity
+│   ├── main.py              routes; every data route needs Core's identity
 │   ├── auth.py              verifies Core's JWT, names the permissions
-│   ├── models.py            todos, scoped to their owner
-│   ├── database.py          JSON file storage
+│   ├── models.py            todos and predefined lists, scoped to their owner
+│   ├── database.py          JSON file storage, one file per kind of record
 │   ├── schemas.py
 │   ├── cobalt_identity/     the SDK, copied from Cobalt_Api (see VENDORED.md)
 │   └── tests/
 └── frontend/                Vite app
-    ├── src/todo-app.js      the UI, exposed as the federated ./TodoApp
+    ├── src/todo-app.js      the plugin shell, exposed as the federated ./TodoApp:
+    │                        mount/unmount, and which page a sub-path shows
+    ├── src/pages/           the pages: todo-list.js, predefined-lists.js
     ├── src/core-sdk.js      the SDK the standalone page uses: calls through Core
     ├── src/main.js          the standalone page
     └── nginx.conf.template  serves the UI, hands /api/ to the backend
@@ -184,14 +189,23 @@ All under the backend's `/api`; through Core, under `/apps/todo/api`.
 | POST | `/api/todos` | `todo.todo.all` |
 | PUT | `/api/todos/{id}` | `todo.todo.all` - title and/or done |
 | DELETE | `/api/todos/{id}` | `todo.todo.all` |
+| GET | `/api/predefined-lists` | `todo.todo.read` - this user's predefined lists, newest first |
+| POST | `/api/predefined-lists` | `todo.todo.all` - `{ "name", "items": [...] }` |
+| PUT | `/api/predefined-lists/{id}` | `todo.todo.all` - name and/or items |
+| DELETE | `/api/predefined-lists/{id}` | `todo.todo.all` |
 | GET | `/api/me` | any valid token - who is calling, and `can_write` |
 | GET | `/api/health` | open |
 | GET | `/api/manifest` | open - Core installs from it |
 | GET | `/api/openapi.json` | open |
 
 Core names permissions `<app>.<tab>.<action>`: Read on the `todo` tab is
-`todo.todo.read`, All adds `todo.todo.all`. Another user's todo answers 404,
-not 403, so ids reveal nothing.
+`todo.todo.read`, All adds `todo.todo.all`. Another user's todo or list answers
+404, not 403, so ids reveal nothing.
+
+A predefined list is a reusable template - a name and the todo titles it would
+create, such as *New Employee Setup: create account, assign laptop, configure
+email*. Both fields are trimmed; a blank name, an empty list or a blank item is
+refused (422). Creating real todos from a template is not implemented yet.
 
 ## Integration
 
@@ -205,6 +219,17 @@ in the manifest: Core takes it from `COBALT_APP_URL_TODO`, so shipping a
 manifest cannot redirect Core's traffic. The `frontend` section is for the ITSM
 shell.
 
+**`navigation`** uses the grouped contract: one group, **To do**, with two
+children that both belong to this one plugin:
+
+| Label | Path | Permission |
+|---|---|---|
+| To do List | `/plugins/ui/todo` | `todo:read` |
+| Predefined to do list | `/plugins/ui/todo/predefined` | `todo:read` |
+
+Both load the same federated module; the sub-path below the plugin's root
+(`''` or `/predefined`) tells it which page to render (see below).
+
 ### Module Federation remote
 
 | | |
@@ -216,8 +241,15 @@ shell.
 
 ```js
 const { mount } = await loadRemote('todo_plugin/TodoApp');
-const unmount = mount(containerElement, { sdk });
+const unmount = mount(containerElement, { sdk, path: '/predefined' });
 ```
+
+`path` is the sub-path below the plugin's root as the manifest's navigation
+names it: `''` (or `'/'`) for the To do List, `'/predefined'` for the
+Predefined to do lists. An unknown path shows the To do List. When the shell
+passes no `path`, the plugin reads it off the page URL, so a shell that only
+routes the address bar still lands on the right page. To switch pages, unmount
+and mount again with the new path.
 
 ### SDK contract
 
@@ -257,7 +289,8 @@ into each other, and the build uses relative paths, so it works under
 | `COBALT_PERMISSION_TAB` | `todo` | Backend: the Core tab its permissions hang off |
 | `CORE_HOSTNAME` | - | Compose: Core's name, mapped to this machine in the backend container |
 | `TODO_BIND_ADDRESS` / `TODO_PORT` | `127.0.0.1` / `8080` | Compose: where Core reaches the gateway |
-| `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage |
+| `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage: todos |
+| `TODO_PREDEFINED_FILE` | `backend/predefined_lists.json` (Docker: `/data/predefined_lists.json`) | Backend storage: predefined lists |
 | `MANIFEST_PATH` | `manifest.json` at the repo root | `/api/manifest` |
 | `VITE_API_TARGET` | `http://127.0.0.1:8001` | `npm run dev` proxy (the fake Core) |
 
@@ -272,12 +305,16 @@ Pull requests build without pushing. New GHCR packages are private by default.
 
 Deliberate for a throwaway POC:
 
-- **JSON file storage**, rewritten on every change; **one uvicorn worker**, since
+- **JSON file storage**, one file per kind of record, rewritten on every
+  change; **one uvicorn worker**, since
   writes are serialised with an in-process lock (the image pins `--workers 1`).
   The replay cache for token ids is per process too, which is why one worker
   is also what the identity check expects.
 - **Todos from before owners existed are not shown.** Each todo now belongs to
   one user; rows written by the earlier, unauthenticated version belong to
   nobody.
-- **No menu entry in the ITSM panel yet.** itsm-front needs a sidebar item
-  pointing at `/apps/todo/` (key `todo`, id 22, label `todo`, matching Core).
+- **Predefined lists are templates only.** Creating todos from one is a later
+  feature. They belong to the user who made them, like todos.
+- **The ITSM panel's menu comes from the manifest's `navigation`.** Until the
+  shell renders it, the standalone page's two links are the way between the
+  pages.

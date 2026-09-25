@@ -1,6 +1,7 @@
 """Todo app - FastAPI service behind Cobalt Core.
 
-Serves the CRUD API under /api/todos. Data is stored in a JSON file.
+Serves the CRUD API under /api/todos and /api/predefined-lists. Data is
+stored in JSON files.
 
 THE BROWSER NEVER CALLS THIS SERVICE. It talks to Cobalt Core only, at
 ``/apps/todo/...``, with its session cookie. Core checks the session and that
@@ -17,6 +18,10 @@ call this service directly.
     POST   /api/todos          create                          todo.todo.all
     PUT    /api/todos/{id}     update title and/or done        todo.todo.all
     DELETE /api/todos/{id}     delete                          todo.todo.all
+    GET    /api/predefined-lists        this user's predefined lists    todo.todo.read
+    POST   /api/predefined-lists        create                          todo.todo.all
+    PUT    /api/predefined-lists/{id}   update name and/or items        todo.todo.all
+    DELETE /api/predefined-lists/{id}   delete                          todo.todo.all
     GET    /api/me             who Core says is calling        any valid token
     GET    /api/health         liveness                        open
     GET    /api/manifest       this app's manifest, for Core   open
@@ -32,7 +37,14 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
 import models
 from auth import CAN_READ, CAN_WRITE, can_read, can_write, identity, owner_of
 from database import init_storage
-from schemas import TodoCreate, TodoOut, TodoUpdate
+from schemas import (
+    PredefinedListCreate,
+    PredefinedListOut,
+    PredefinedListUpdate,
+    TodoCreate,
+    TodoOut,
+    TodoUpdate,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(BASE_DIR)
@@ -49,7 +61,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Todo List",
-    version="1.1.0",
+    version="1.2.0",
     description="Todo List app, served behind Cobalt Core's /apps proxy",
     lifespan=lifespan,
     # The schema sits under /api like everything else, where the manifest says.
@@ -96,6 +108,45 @@ def delete_todo(todo_id: int, who=Depends(can_write)):
 
 
 app.include_router(todos_router)
+
+# ---------------------------------------------------------------------------
+# Predefined lists - reusable templates, kept with the same identity and
+# permissions as todos. Creating todos from one is a later feature.
+# ---------------------------------------------------------------------------
+
+predefined_router = APIRouter(prefix="/api/predefined-lists", tags=["Predefined lists"])
+
+
+@predefined_router.get("", response_model=List[PredefinedListOut])
+def list_predefined_lists(who=Depends(can_read)):
+    """This user's predefined lists, newest first."""
+    return models.list_predefined_lists(*owner_of(who))
+
+
+@predefined_router.post("", response_model=PredefinedListOut, status_code=status.HTTP_201_CREATED)
+def create_predefined_list(body: PredefinedListCreate, who=Depends(can_write)):
+    """Create a new predefined list for this user."""
+    return models.create_predefined_list(*owner_of(who), body.name, body.items)
+
+
+@predefined_router.put("/{list_id}", response_model=PredefinedListOut)
+def update_predefined_list(list_id: int, body: PredefinedListUpdate, who=Depends(can_write)):
+    """Update a predefined list's name, its items, or both."""
+    updated = models.update_predefined_list(*owner_of(who), list_id, body.name, body.items)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Predefined list not found")
+    return updated
+
+
+@predefined_router.delete("/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_predefined_list(list_id: int, who=Depends(can_write)):
+    """Delete a predefined list."""
+    if not models.delete_predefined_list(*owner_of(who), list_id):
+        raise HTTPException(status_code=404, detail="Predefined list not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+app.include_router(predefined_router)
 
 # ---------------------------------------------------------------------------
 # Identity, health, manifest

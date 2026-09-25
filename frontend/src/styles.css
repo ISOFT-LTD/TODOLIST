@@ -43,3 +43,25 @@ li input[type=text] { padding: 4px 8px; }
 .error { color: #b42318; text-align: center; padding: 12px 0; }
 [hidden] { display: none !important; }
 .who { margin: -12px 0 20px; font-size: 13px; color: #6b7280; }
+
+/* Predefined lists: the add form stacks name over items, and each list is a
+   card with its name and buttons on one row and the items underneath. */
+textarea {
+  width: 100%; padding: 10px 12px; font: inherit; color: inherit; resize: vertical;
+  border: 1px solid #d0d3d8; border-radius: 6px; background: #fff;
+}
+textarea:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
+.template-form { flex-direction: column; align-items: stretch; }
+.template-form .new-name { flex: none; }
+.template-form button { align-self: flex-end; }
+
+li.template { flex-direction: column; align-items: stretch; }
+li.template .head { display: flex; align-items: center; gap: 10px; }
+li.template .head .title { font-weight: 600; }
+li.template .items { margin: 8px 0 0; padding-left: 28px; color: #4b5563; }
+li.template .items li {
+  display: list-item; padding: 2px 0; margin: 0; border: 0; background: none;
+}
+li.template .edit-name { width: 100%; }
+li.template .edit-items { margin-top: 8px; }
+li.template .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }

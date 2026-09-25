@@ -10,7 +10,7 @@
 services:
   todo-backend:
     build: ./backend
-    image: todo-backend:1.1.0
+    image: todo-backend:1.2.0
     container_name: todo-backend
     environment:
       COBALT_AUDIENCE: todo
@@ -20,7 +20,7 @@ services:
       COBALT_CORE_JWKS_URL: ${COBALT_CORE_JWKS_URL:-}
       COBALT_CORE_JWKS_FILE: ${COBALT_CORE_JWKS_FILE:-}
     volumes:
-      # Keeps /data/todos.json across restarts and recreates.
+      # Keeps /data/todos.json and /data/predefined_lists.json across restarts and recreates.
       - todo-data:/data
       # manifest.json lives at the repo root, outside the backend build context.
       - ./manifest.json:/app/manifest.json:ro
@@ -41,7 +41,7 @@ services:
 
   todo-frontend:
     build: ./frontend
-    image: todo-frontend:1.1.0
+    image: todo-frontend:1.2.0
     container_name: todo-frontend
     environment:
       TODO_BACKEND_URL: http://todo-backend:8000
