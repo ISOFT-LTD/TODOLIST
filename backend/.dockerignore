@@ -9,3 +9,6 @@ todos.json
 *.log
 Dockerfile
 .dockerignore
+tests
+requirements-dev.txt
+.pytest_cache
