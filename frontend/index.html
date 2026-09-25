@@ -7,9 +7,17 @@
 <title>Todo List</title>
 <style>
   body { margin: 0; padding: 16px; background: #f6f7f9; }
+  /* Standalone only: the ITSM shell has its own navigation for these pages. */
+  .pages { max-width: 480px; margin: 0 auto 8px; font: 14px system-ui, sans-serif; }
+  .pages a { color: #2563eb; text-decoration: none; margin-right: 16px; }
+  .pages a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+  <nav class="pages">
+    <a href="./">To do List</a>
+    <a href="./predefined">Predefined to do list</a>
+  </nav>
   <div id="app"></div>
   <script type="module" src="./src/main.js"></script>
 </body>

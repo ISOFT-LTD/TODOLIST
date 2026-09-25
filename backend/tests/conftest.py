@@ -41,19 +41,21 @@ os.environ.update({
     "COBALT_TENANT_ID": TENANT,
     "COBALT_CORE_JWKS_FILE": _jwks,
     "TODO_DATA_FILE": os.path.join(_workdir, "todos.json"),
+    "TODO_PREDEFINED_FILE": os.path.join(_workdir, "predefined_lists.json"),
 })
 os.environ.pop("COBALT_CORE_JWKS_URL", None)
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    """A client over the real app, on a data file of its own."""
+    """A client over the real app, on data files of its own."""
     import database
     from fastapi.testclient import TestClient
 
     import main
 
     monkeypatch.setattr(database, "DATA_FILE", str(tmp_path / "todos.json"))
+    monkeypatch.setattr(database, "PREDEFINED_FILE", str(tmp_path / "predefined_lists.json"))
     with TestClient(main.app) as test_client:
         yield test_client
 

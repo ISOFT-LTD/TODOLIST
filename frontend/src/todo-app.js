@@ -7,13 +7,20 @@
  * The plugin reaches the outside world only through the SDK it is given. It
  * never imports Core code and knows nothing about URLs, sessions or transport:
  * in the ITSM shell, Core's SDK routes sdk.api through Core; standalone, the
- * local development SDK (dev-sdk.js) calls the Todo service directly.
+ * page's own SDK (core-sdk.js) calls through Core relative to the page.
  *
- *   const unmount = mount(element, { sdk });
+ *   const unmount = mount(element, { sdk, path });
  *
- * On mount it asks the API who is calling (GET /me) and, for a user who may
- * only read, hides the controls they cannot use - the service refuses those
- * writes anyway; this just saves a click that would fail.
+ * One remote, one exposed module, two pages. Which page renders is decided by
+ * `path`, the sub-path below the plugin's root as the shell's navigation names
+ * it (manifest.json, `navigation[].children[].path`):
+ *
+ *   ''             or '/'    the To do List             /plugins/ui/todo
+ *   '/predefined'            the Predefined to do lists /plugins/ui/todo/predefined
+ *
+ * When the host passes no `path`, the plugin reads it off the page URL, so a
+ * shell that only routes the address bar still lands on the right page. To
+ * switch pages, the host unmounts and mounts again with the new path.
  *
  * SDK contract this plugin relies on:
  *   sdk.api.get(path) / post(path, body) / put(path, body) / delete(path)
@@ -23,33 +30,49 @@
  */
 
 import styles from './styles.css?inline';
+import { mountPredefinedLists } from './pages/predefined-lists.js';
+import { mountTodoList } from './pages/todo-list.js';
 
-const TEMPLATE = `
-  <main class="todo">
-    <h1>Todo List</h1>
-    <p class="who" hidden></p>
-    <form class="add-form">
-      <input type="text" class="new-title" placeholder="What needs doing?" autocomplete="off" required>
-      <button type="submit" class="primary">Add</button>
-    </form>
-    <ul class="list"></ul>
-    <p class="error" hidden></p>
-  </main>
-`;
+/** The plugin's pages, keyed by sub-path. The first one is the default. */
+const PAGES = [
+  { path: '', mount: mountTodoList },
+  { path: '/predefined', mount: mountPredefinedLists },
+];
 
 const instances = new WeakMap();
 
 const API_METHODS = ['get', 'post', 'put', 'delete'];
 
+/** '/predefined/', 'predefined' and '/predefined' all mean the same page. */
+function normalizePath(path) {
+  const trimmed = String(path ?? '').trim().replace(/\/+$/, '').replace(/^\/*/, '/');
+  return trimmed === '/' ? '' : trimmed;
+}
+
+/** The sub-path the page URL ends with, when the host did not say. */
+function pathFromLocation() {
+  if (typeof window === 'undefined') return '';
+  const here = window.location.pathname.replace(/\/+$/, '');
+  const match = PAGES.find((page) => page.path && here.endsWith(page.path));
+  return match ? match.path : '';
+}
+
+/** The page for a sub-path; unknown paths fall back to the To do List. */
+export function resolvePage(path) {
+  const wanted = path === undefined || path === null ? pathFromLocation() : normalizePath(path);
+  return PAGES.find((page) => page.path === wanted) ?? PAGES[0];
+}
+
 /**
- * Render the todo app into `el`.
+ * Render the todo plugin into `el`.
  *
  * @param {HTMLElement} el Container owned by the host.
  * @param {object} options
  * @param {object} options.sdk Host SDK. Only sdk.api is used.
+ * @param {string} [options.path] Sub-path below the plugin root, e.g. '/predefined'.
  * @returns {() => void} Unmount function.
  */
-export function mount(el, { sdk } = {}) {
+export function mount(el, { sdk, path } = {}) {
   if (!(el instanceof HTMLElement)) {
     throw new Error('todo-plugin: mount() needs a container element');
   }
@@ -64,143 +87,16 @@ export function mount(el, { sdk } = {}) {
 
   // attachShadow() can only run once per element, so reuse it on remount.
   const root = el.shadowRoot ?? el.attachShadow({ mode: 'open' });
-  root.innerHTML = `<style>${styles}</style>${TEMPLATE}`;
+  root.innerHTML = `<style>${styles}</style>`;
 
-  const list = root.querySelector('.list');
-  const form = root.querySelector('.add-form');
-  const input = root.querySelector('.new-title');
-  const errorBox = root.querySelector('.error');
-  const who = root.querySelector('.who');
-
-  let destroyed = false;
-  let editingId = null;
-  // Until GET /me says otherwise. The service enforces it either way.
-  let canWrite = true;
-
-  const showError = (msg) => {
-    if (destroyed) return;
-    errorBox.textContent = msg;
-    errorBox.hidden = !msg;
-  };
-
-  function render(todos) {
-    if (destroyed) return;
-    list.innerHTML = '';
-    if (!todos.length) {
-      list.innerHTML = '<p class="empty">Nothing here yet.</p>';
-      return;
-    }
-    for (const todo of todos) {
-      const li = document.createElement('li');
-      if (todo.done) li.className = 'done';
-
-      const check = document.createElement('input');
-      check.type = 'checkbox';
-      check.checked = todo.done;
-      check.disabled = !canWrite;
-      check.onchange = () => update(todo.id, { done: check.checked });
-      li.append(check);
-
-      if (editingId === todo.id) {
-        const edit = document.createElement('input');
-        edit.type = 'text';
-        edit.value = todo.title;
-        edit.style.flex = '1';
-        edit.onkeydown = (e) => {
-          if (e.key === 'Enter') update(todo.id, { title: edit.value });
-          if (e.key === 'Escape') { editingId = null; load(); }
-        };
-        li.append(edit);
-        setTimeout(() => edit.focus(), 0);
-
-        const ok = document.createElement('button');
-        ok.textContent = 'Save';
-        ok.className = 'primary';
-        ok.onclick = () => update(todo.id, { title: edit.value });
-        li.append(ok);
-      } else {
-        const span = document.createElement('span');
-        span.className = 'title';
-        span.textContent = todo.title;
-        li.append(span);
-
-        const editBtn = document.createElement('button');
-        editBtn.textContent = 'Edit';
-        editBtn.onclick = () => { editingId = todo.id; load(); };
-        if (canWrite) li.append(editBtn);
-      }
-
-      if (canWrite) {
-        const del = document.createElement('button');
-        del.textContent = 'Delete';
-        del.onclick = () => remove(todo.id);
-        li.append(del);
-      }
-
-      list.append(li);
-    }
-  }
-
-  async function loadIdentity() {
-    try {
-      const me = await api.get('/me');
-      canWrite = Boolean(me?.can_write);
-      const name = me?.username || '';
-      who.textContent = name ? `Signed in as ${name}${canWrite ? '' : ' - read only'}` : '';
-      who.hidden = !who.textContent;
-      form.hidden = !canWrite;
-    } catch {
-      // The list request that follows reports anything that really is wrong.
-    }
-  }
-
-  async function load() {
-    try {
-      showError('');
-      render(await api.get('/todos'));
-    } catch (err) {
-      showError(err.message);
-    }
-  }
-
-  async function update(id, changes) {
-    try {
-      await api.put(`/todos/${id}`, changes);
-      editingId = null;
-      load();
-    } catch (err) {
-      showError(err.message);
-    }
-  }
-
-  async function remove(id) {
-    try {
-      await api.delete(`/todos/${id}`);
-      load();
-    } catch (err) {
-      showError(err.message);
-    }
-  }
-
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const title = input.value.trim();
-    if (!title) return;
-    try {
-      await api.post('/todos', { title });
-      input.value = '';
-      load();
-    } catch (err) {
-      showError(err.message);
-    }
-  };
+  const page = resolvePage(path);
+  const teardownPage = page.mount(root, { api });
 
   instances.set(el, () => {
-    destroyed = true;
+    teardownPage();
     root.innerHTML = '';
   });
 
-  loadIdentity().then(load);
   return () => unmount(el);
 }
 
