@@ -11,7 +11,12 @@ export default defineConfig({
       name: 'todo_plugin',
       filename: 'remoteEntry.js',
       exposes: {
+        // The standalone pages: mount(el, { sdk, path }).
         './TodoApp': './src/todo-app.js',
+        // Core extension contributions (manifest.json, `contributes`):
+        // mount(el, context, sdk) returning { update, unmount }.
+        './ComputerTodoAction': './src/extensions/computer-todo-action.js',
+        './ComputerTodoTab': './src/extensions/computer-todo-tab.js',
       },
       // Vanilla JS: nothing to share with the React shell.
       shared: {},

@@ -15,6 +15,7 @@ Which is why there is no CORS middleware: no browser origin is ever allowed to
 call this service directly.
 
     GET    /api/todos          list this user's todos          todo.todo.read
+                               (?computer_id=N: only that computer's)
     POST   /api/todos          create                          todo.todo.all
     PUT    /api/todos/{id}     update title and/or done        todo.todo.all
     DELETE /api/todos/{id}     delete                          todo.todo.all
@@ -30,9 +31,9 @@ call this service directly.
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Response, status
 
 import models
 from auth import CAN_READ, CAN_WRITE, can_read, can_write, identity, owner_of
@@ -61,7 +62,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Todo List",
-    version="1.2.0",
+    version="1.3.0",
     description="Todo List app, served behind Cobalt Core's /apps proxy",
     lifespan=lifespan,
     # The schema sits under /api like everything else, where the manifest says.
@@ -79,15 +80,15 @@ todos_router = APIRouter(prefix="/api/todos", tags=["Todos"])
 
 
 @todos_router.get("", response_model=List[TodoOut])
-def list_todos(who=Depends(can_read)):
-    """This user's todos, newest first."""
-    return models.list_todos(*owner_of(who))
+def list_todos(computer_id: Optional[int] = Query(None, ge=1), who=Depends(can_read)):
+    """This user's todos, newest first; only one computer's with ``computer_id``."""
+    return models.list_todos(*owner_of(who), computer_id=computer_id)
 
 
 @todos_router.post("", response_model=TodoOut, status_code=status.HTTP_201_CREATED)
 def create_todo(todo: TodoCreate, who=Depends(can_write)):
-    """Create a new todo for this user."""
-    return models.create_todo(*owner_of(who), todo.title)
+    """Create a new todo for this user, about a computer when it names one."""
+    return models.create_todo(*owner_of(who), todo.title, computer_id=todo.computer_id)
 
 
 @todos_router.put("/{todo_id}", response_model=TodoOut)

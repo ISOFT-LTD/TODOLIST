@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "todo",
   "name": "Todo List",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy",
   "icon": "fa-square-check",
 
@@ -57,6 +57,25 @@
     "sdk": ["api"],
     "shared": []
   },
+
+  "contributes": [
+    {
+      "id": "computer-todo-action",
+      "target": "computer.details.header.actions",
+      "exposedModule": "./ComputerTodoAction",
+      "permission": "todo.todo.all",
+      "order": 100
+    },
+    {
+      "id": "computer-todo-tab",
+      "target": "computer.details.tabs",
+      "exposedModule": "./ComputerTodoTab",
+      "permission": "todo.todo.read",
+      "label": "To do",
+      "icon": "fa-square-check",
+      "order": 100
+    }
+  ],
 
   "backend": {
     "apiRoot": "/api",

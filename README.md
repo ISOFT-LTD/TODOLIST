@@ -102,7 +102,7 @@ app's manifest from the running app and registers it:
 docker compose exec app python scripts/install_application.py --from-service todo
 ```
 
-It prints `Todo List (todo 1.2.0): registered` and a checklist. Installing
+It prints `Todo List (todo 1.3.0): registered` and a checklist. Installing
 again after an upgrade is the same command. From a browser instead, as an
 administrator: `POST /auth/applications/install` with this repository's
 `manifest.json` as the body.
@@ -147,6 +147,9 @@ TODOLIST/
     ├── src/todo-app.js      the plugin shell, exposed as the federated ./TodoApp:
     │                        mount/unmount, and which page a sub-path shows
     ├── src/pages/           the pages: todo-list.js, predefined-lists.js
+    ├── src/extensions/      Computer Details contributions: ./ComputerTodoAction,
+    │                        ./ComputerTodoTab, and the mount contract they share
+    ├── src/todo-events.js   "todos changed", between the plugin's own modules
     ├── src/core-sdk.js      the SDK the standalone page uses: calls through Core
     ├── src/main.js          the standalone page
     └── nginx.conf.template  serves the UI, hands /api/ to the backend
@@ -179,14 +182,18 @@ Tests:
 python -m pytest backend/tests
 ```
 
+```bash
+cd frontend && npm test
+```
+
 ## API
 
 All under the backend's `/api`; through Core, under `/apps/todo/api`.
 
 | Method | Path | Needs |
 |---|---|---|
-| GET | `/api/todos` | `todo.todo.read` - this user's todos, newest first |
-| POST | `/api/todos` | `todo.todo.all` |
+| GET | `/api/todos` | `todo.todo.read` - this user's todos, newest first; `?computer_id=N` for one computer's |
+| POST | `/api/todos` | `todo.todo.all` - `{ "title", "computer_id"? }` |
 | PUT | `/api/todos/{id}` | `todo.todo.all` - title and/or done |
 | DELETE | `/api/todos/{id}` | `todo.todo.all` |
 | GET | `/api/predefined-lists` | `todo.todo.read` - this user's predefined lists, newest first |
@@ -206,6 +213,11 @@ A predefined list is a reusable template - a name and the todo titles it would
 create, such as *New Employee Setup: create account, assign laptop, configure
 email*. Both fields are trimmed; a blank name, an empty list or a blank item is
 refused (422). Creating real todos from a template is not implemented yet.
+
+A todo can be **about a Core computer**: `computer_id` is Core's own id for
+it, as the Computer Details page passes it, kept as given (a positive integer,
+never checked against Core). A todo without one has `null`. Todos only gain a
+computer when created with one; updating a todo keeps it.
 
 ## Integration
 
@@ -230,13 +242,27 @@ children that both belong to this one plugin:
 Both load the same federated module; the sub-path below the plugin's root
 (`''` or `/predefined`) tells it which page to render (see below).
 
+**`contributes`** puts this plugin into Core pages, at the extension targets
+the Core defines. The Core decides where each renders, filters them by the
+user's permissions, orders, loads, mounts, updates and unmounts them:
+
+| id | Target | Exposed module | Permission | Tab |
+|---|---|---|---|---|
+| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | `todo.todo.all` | - |
+| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | `todo.todo.read` | **To do**, `fa-square-check` |
+
+Contribution permissions use the Core's own names, `<app>.<tab>.read|all`,
+not the navigation's `todo:read` spelling. The header action adds todos, so
+only users who may add them see it; the tab is shown to readers, without the
+add form when they cannot write.
+
 ### Module Federation remote
 
 | | |
 |---|---|
 | Remote name | `todo_plugin` |
 | Entry | `remoteEntry.js` - through Core, `/apps/todo/remoteEntry.js` |
-| Exposed module | `./TodoApp` |
+| Exposed modules | `./TodoApp` (the pages), `./ComputerTodoAction`, `./ComputerTodoTab` (contributions) |
 | Shared dependencies | none |
 
 ```js
@@ -251,10 +277,35 @@ passes no `path`, the plugin reads it off the page URL, so a shell that only
 routes the address bar still lands on the right page. To switch pages, unmount
 and mount again with the new path.
 
+### Computer Details contributions
+
+Each contribution module exports `mount(el, context, sdk)`, the Core's
+contribution contract, and is a different contract from `./TodoApp`'s:
+
+```js
+const { mount } = await loadRemote('todo_plugin/ComputerTodoTab');
+const handle = mount(hostElement, { computerId: 42 }, sdk);
+handle.update({ computerId: 43 }); // same host, another computer
+handle.unmount();                  // host going away: renders nothing any more
+```
+
+| Module | Renders |
+|---|---|
+| `./ComputerTodoAction` | A compact **Add Todo** button. It opens a small dialog that adds a todo with this `computer_id`, then asks the Core for a success toast (`sdk.notify`). |
+| `./ComputerTodoTab` | The To do List scoped to the computer: its todos, ticked, edited and deleted as on the standalone page, and new ones added to it. |
+
+Both render in a shadow root on `el` and touch nothing outside it; `update()`
+redraws only when `computerId` changes, and `unmount()` is safe to repeat. A
+todo added from the header shows up in the open tab without a reload: the two
+modules share the plugin's own `todo-events.js`, never the Core's DOM. A
+context without a usable `computerId` renders nothing (the action) or a short
+notice (the tab), instead of failing.
+
 ### SDK contract
 
 The UI never imports Core code. Everything goes through the `sdk` passed to
-`mount`; only `sdk.api` is used:
+`mount`; the pages use only `sdk.api`, and the contributions also
+`sdk.notify` when the Core provides it:
 
 | Method | Example |
 |---|---|

@@ -65,3 +65,14 @@ li.template .items li {
 li.template .edit-name { width: 100%; }
 li.template .edit-items { margin-top: 8px; }
 li.template .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+/* A todo about a Core computer, as the standalone list shows it. */
+.tag {
+  flex: none; padding: 1px 8px; font-size: 12px; color: #1d4ed8;
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px;
+}
+
+/* The list inside a Core page (the Computer Details tab): the Core's panel
+   sets the width and the tab names it, so no centring and no heading. */
+.todo.embedded { max-width: none; margin: 0; padding: 16px 20px; font-size: 14px; }
+.todo.embedded .who { margin: 0 0 12px; }
