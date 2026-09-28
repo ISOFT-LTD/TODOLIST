@@ -33,12 +33,14 @@
           "label": "To do List",
           "path": "/plugins/ui/todo",
           "permission": "todo:read",
+          "subTab": "list",
           "order": 100
         },
         {
           "label": "Predefined to do list",
           "path": "/plugins/ui/todo/predefined",
           "permission": "todo:read",
+          "subTab": "predefined",
           "order": 101
         }
       ]
