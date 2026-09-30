@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as actionModule from './computer-todo-action.js';
 import * as tabModule from './computer-todo-tab.js';
+import { en, fakeI18n } from '../testing/i18n.js';
 
 /** The Core's SDK v1 over an in-memory todo API. */
 function fakeSdk({ canWrite = true } = {}) {
@@ -32,7 +33,7 @@ function fakeSdk({ canWrite = true } = {}) {
     }),
     delete: vi.fn(async () => null),
   };
-  return { api, navigate: vi.fn(), notify: vi.fn(), todos };
+  return { api, navigate: vi.fn(), notify: vi.fn(), i18n: fakeI18n(), todos };
 }
 
 /** Let pending API promises and their renders settle. */
@@ -194,7 +195,7 @@ describe('ComputerTodoAction', () => {
   it('is one compact button until clicked', () => {
     const handle = actionModule.mount(host, { computerId: 42 }, fakeSdk());
     const button = host.shadowRoot.querySelector('.open');
-    expect(button.textContent.trim()).toBe('Add Todo');
+    expect(button.textContent.trim()).toBe(en('todo.add-todo'));
     expect(host.shadowRoot.querySelector('dialog').open).toBe(false);
     handle.unmount();
   });
@@ -206,7 +207,7 @@ describe('ComputerTodoAction', () => {
     await addFromDialog('Replace the disk');
 
     expect(sdk.api.post).toHaveBeenCalledWith('/todos', { title: 'Replace the disk', computer_id: 42 });
-    expect(sdk.notify).toHaveBeenCalledWith({ type: 'success', message: 'Todo added for this computer.' });
+    expect(sdk.notify).toHaveBeenCalledWith({ type: 'success', message: en('todo.computer-todo-added') });
     expect(host.shadowRoot.querySelector('dialog').open).toBe(false);
     handle.unmount();
   });
@@ -224,14 +225,14 @@ describe('ComputerTodoAction', () => {
 
   it('shows the API error in the dialog and keeps it open', async () => {
     const sdk = fakeSdk();
-    sdk.api.post.mockRejectedValueOnce(new Error('You can view this list but not change it.'));
+    sdk.api.post.mockRejectedValueOnce(new Error('Server said no'));
     const handle = actionModule.mount(host, { computerId: 42 }, sdk);
 
     await addFromDialog('Replace the disk');
 
     const error = host.shadowRoot.querySelector('.error');
     expect(error.hidden).toBe(false);
-    expect(error.textContent).toBe('You can view this list but not change it.');
+    expect(error.textContent).toBe('Server said no');
     expect(host.shadowRoot.querySelector('dialog').open).toBe(true);
     expect(sdk.notify).not.toHaveBeenCalled();
     handle.unmount();

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "translation-keys": "node translations/build-workbook.js"
   },
   "devDependencies": {
     "@module-federation/vite": "^1.22.0",

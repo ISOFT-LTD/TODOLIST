@@ -10,30 +10,35 @@
  * todo about this computer through the same API the To do List uses. The Core
  * shows the confirmation, and the To do tab, if open, lists the new todo.
  *
+ * Its words come from sdk.i18n, the application's translations. A change of
+ * language redraws them in place: an open dialog stays open, with what was
+ * typed in it.
+ *
  * The manifest asks the Core to show it only to users who may add todos
  * (todo.todo.all); the API refuses anyone else regardless.
  */
 
+import { createPluginTranslation } from '../plugin-translation.js';
 import { todosChanged } from '../todo-events.js';
 import { appendHtml } from '../pages/shared.js';
 import { createContribution, notify } from './contribution.js';
 import styles from './computer-todo-action.css?inline';
 
 const TEMPLATE = `
-  <button type="button" class="open" title="Add a todo about this computer">
+  <button type="button" class="open" data-i18n-title="todo.add-computer-todo-tooltip">
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
       <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
     </svg>
-    <span>Add Todo</span>
+    <span data-i18n="todo.add-todo"></span>
   </button>
   <dialog aria-labelledby="todo-dialog-title">
     <form method="dialog" class="add-form">
-      <h2 id="todo-dialog-title">Add a todo for this computer</h2>
-      <input type="text" class="new-title" placeholder="What needs doing?" autocomplete="off" maxlength="255" required>
+      <h2 id="todo-dialog-title" data-i18n="todo.add-computer-todo-title"></h2>
+      <input type="text" class="new-title" data-i18n-placeholder="todo.new-todo-placeholder" autocomplete="off" maxlength="255" required>
       <p class="error" role="alert" hidden></p>
       <div class="actions">
-        <button type="button" class="cancel">Cancel</button>
-        <button type="submit" class="primary save">Add</button>
+        <button type="button" class="cancel" data-i18n="todo.cancel"></button>
+        <button type="submit" class="primary save" data-i18n="todo.add"></button>
       </div>
     </form>
   </dialog>
@@ -45,6 +50,7 @@ function renderAction(root, { computerId, sdk }) {
   if (computerId === null) return () => {};
 
   appendHtml(root, TEMPLATE);
+  const texts = createPluginTranslation(sdk.i18n, root);
 
   const open = root.querySelector('.open');
   const dialog = root.querySelector('dialog');
@@ -56,6 +62,7 @@ function renderAction(root, { computerId, sdk }) {
 
   let destroyed = false;
 
+  /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
     errorBox.textContent = msg;
     errorBox.hidden = !msg;
@@ -91,7 +98,7 @@ function renderAction(root, { computerId, sdk }) {
       if (destroyed) return;
       hide();
       todosChanged({ computerId });
-      notify(sdk, 'success', 'Todo added for this computer.');
+      notify(sdk, 'success', texts.t('todo.computer-todo-added'));
     } catch (err) {
       if (!destroyed) showError(err.message);
     } finally {
@@ -101,6 +108,7 @@ function renderAction(root, { computerId, sdk }) {
 
   return () => {
     destroyed = true;
+    texts.stop();
     // A modal dialog left open would hold the page's focus and the top layer.
     if (dialog.open) hide();
   };

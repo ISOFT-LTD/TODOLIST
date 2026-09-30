@@ -19,8 +19,15 @@
  *
  * SDK contract relied on (the Core's SDK v1):
  *   sdk.api.get / post / put / delete   this plugin's API, through the Core
+ *   sdk.i18n.translate / subscribe      the application's translations
  *   sdk.notify({ type, message })       optional: a toast the way the Core shows its own
+ *
+ * A change of language is no update(): the renderer's words come from
+ * sdk.i18n through the plugin's translation helper, which redraws them in
+ * place and keeps what the renderer holds.
  */
+
+import { missingI18n } from '../plugin-translation.js';
 
 const API_METHODS = ['get', 'post', 'put', 'delete'];
 
@@ -58,9 +65,12 @@ export function createContribution({ name, styles, render }) {
     if (!(el instanceof HTMLElement)) {
       throw new Error(`todo-plugin ${name}: mount() needs a host element`);
     }
-    const missing = API_METHODS.filter((m) => typeof sdk?.api?.[m] !== 'function');
+    const missing = [
+      ...API_METHODS.filter((m) => typeof sdk?.api?.[m] !== 'function').map((m) => `sdk.api.${m}`),
+      ...missingI18n(sdk),
+    ];
     if (missing.length) {
-      throw new Error(`todo-plugin ${name}: mount() needs an SDK with sdk.api.${missing.join(', sdk.api.')}`);
+      throw new Error(`todo-plugin ${name}: mount() needs an SDK with ${missing.join(', ')}`);
     }
 
     // attachShadow() can only run once per element, so reuse it if the host

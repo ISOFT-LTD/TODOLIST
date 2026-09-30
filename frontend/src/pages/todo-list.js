@@ -1,11 +1,13 @@
 /**
  * The To do List page: this user's todos, with add, edit, tick and delete.
  *
- *   const teardown = mountTodoList(shadowRoot, { api });
- *   const teardown = mountTodoList(shadowRoot, { api, computerId: 42 });
+ *   const teardown = mountTodoList(shadowRoot, { api, i18n });
+ *   const teardown = mountTodoList(shadowRoot, { api, i18n, computerId: 42 });
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
- * place) and talks to the API only through `api` (see todo-app.js).
+ * place) and talks to the API only through `api` (see todo-app.js). Its
+ * words come from `i18n`, the application's translations, through the
+ * plugin's translation helper: a change of language redraws them in place.
  *
  * With `computerId` it is the same list about one Core computer - what the
  * Computer Details tab shows: only that computer's todos, and new ones are
@@ -13,16 +15,17 @@
  * is about a computer saying which.
  */
 
+import { createPluginTranslation } from '../plugin-translation.js';
 import { onTodosChanged } from '../todo-events.js';
 import { appendHtml, describeUser, whoIsCalling } from './shared.js';
 
 const TEMPLATE = `
   <main class="todo">
-    <h1>Todo List</h1>
+    <h1 data-i18n="todo.title"></h1>
     <p class="who" hidden></p>
     <form class="add-form">
-      <input type="text" class="new-title" placeholder="What needs doing?" autocomplete="off" required>
-      <button type="submit" class="primary">Add</button>
+      <input type="text" class="new-title" data-i18n-placeholder="todo.new-todo-placeholder" autocomplete="off" required>
+      <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
     <ul class="list"></ul>
     <p class="error" hidden></p>
@@ -33,17 +36,18 @@ const EMBEDDED_TEMPLATE = `
   <main class="todo embedded">
     <p class="who" hidden></p>
     <form class="add-form">
-      <input type="text" class="new-title" placeholder="What needs doing on this computer?" autocomplete="off" required>
-      <button type="submit" class="primary">Add</button>
+      <input type="text" class="new-title" data-i18n-placeholder="todo.new-computer-todo-placeholder" autocomplete="off" required>
+      <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
     <ul class="list"></ul>
     <p class="error" hidden></p>
   </main>
 `;
 
-export function mountTodoList(root, { api, computerId = null }) {
+export function mountTodoList(root, { api, i18n, computerId = null }) {
   const scoped = computerId !== null;
   appendHtml(root, scoped ? EMBEDDED_TEMPLATE : TEMPLATE);
+  const texts = createPluginTranslation(i18n, root);
   const listPath = scoped ? `/todos?computer_id=${encodeURIComponent(computerId)}` : '/todos';
 
   const list = root.querySelector('.list');
@@ -56,10 +60,12 @@ export function mountTodoList(root, { api, computerId = null }) {
   let editingId = null;
   // Until GET /me says otherwise. The service enforces it either way.
   let canWrite = true;
+  let me = null;
 
+  /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
     if (destroyed) return;
-    errorBox.textContent = msg;
+    texts.plain(errorBox, msg);
     errorBox.hidden = !msg;
   };
 
@@ -67,7 +73,10 @@ export function mountTodoList(root, { api, computerId = null }) {
     if (destroyed) return;
     list.innerHTML = '';
     if (!todos.length) {
-      list.innerHTML = `<p class="empty">${scoped ? 'Nothing to do for this computer yet.' : 'Nothing here yet.'}</p>`;
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      texts.text(empty, scoped ? 'todo.no-computer-todos' : 'todo.no-todos');
+      list.append(empty);
       return;
     }
     for (const todo of todos) {
@@ -94,7 +103,7 @@ export function mountTodoList(root, { api, computerId = null }) {
         setTimeout(() => edit.focus(), 0);
 
         const ok = document.createElement('button');
-        ok.textContent = 'Save';
+        texts.text(ok, 'todo.save');
         ok.className = 'primary';
         ok.onclick = () => update(todo.id, { title: edit.value });
         li.append(ok);
@@ -105,23 +114,24 @@ export function mountTodoList(root, { api, computerId = null }) {
         li.append(span);
 
         // The standalone list says which computer a todo is about; the
-        // computer's own tab needs no reminder.
+        // computer's own tab needs no reminder. The word is translated, the
+        // id is data.
         if (!scoped && todo.computer_id != null) {
           const tag = document.createElement('span');
           tag.className = 'tag';
-          tag.textContent = `Computer ${todo.computer_id}`;
+          tag.append(texts.text(document.createElement('span'), 'todo.computer'), ` ${todo.computer_id}`);
           li.append(tag);
         }
 
         const editBtn = document.createElement('button');
-        editBtn.textContent = 'Edit';
+        texts.text(editBtn, 'todo.edit');
         editBtn.onclick = () => { editingId = todo.id; load(); };
         if (canWrite) li.append(editBtn);
       }
 
       if (canWrite) {
         const del = document.createElement('button');
-        del.textContent = 'Delete';
+        texts.text(del, 'todo.delete');
         del.onclick = () => remove(todo.id);
         li.append(del);
       }
@@ -130,13 +140,21 @@ export function mountTodoList(root, { api, computerId = null }) {
     }
   }
 
-  async function loadIdentity() {
-    const me = await whoIsCalling(api);
-    if (!me || destroyed) return;
-    canWrite = me.canWrite;
+  /** Who is signed in, in the words of the moment. */
+  function drawWho() {
+    if (!me) return;
     // Inside the Core the user knows who they are; only say "read only".
-    who.textContent = scoped ? (me.canWrite ? '' : 'Read only') : describeUser(me);
+    who.textContent = scoped ? (me.canWrite ? '' : texts.t('todo.read-only')) : describeUser(me, texts.t);
     who.hidden = !who.textContent;
+  }
+  texts.onChange(drawWho);
+
+  async function loadIdentity() {
+    const found = await whoIsCalling(api);
+    if (!found || destroyed) return;
+    me = found;
+    canWrite = me.canWrite;
+    drawWho();
     form.hidden = !canWrite;
   }
 
@@ -192,5 +210,6 @@ export function mountTodoList(root, { api, computerId = null }) {
   return () => {
     destroyed = true;
     stopListening();
+    texts.stop();
   };
 }

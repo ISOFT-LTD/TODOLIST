@@ -2,6 +2,7 @@
 // still every todo, still added without a computer.
 
 import { expect, it, vi } from 'vitest';
+import { en, fakeI18n } from './testing/i18n.js';
 import { mount } from './todo-app.js';
 
 it('lists every todo, saying which computer one is about', async () => {
@@ -17,11 +18,11 @@ it('lists every todo, saying which computer one is about', async () => {
   const el = document.createElement('div');
   document.body.append(el);
 
-  const unmount = mount(el, { sdk: { api }, path: '' });
+  const unmount = mount(el, { sdk: { api, i18n: fakeI18n() }, path: '' });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(api.get).toHaveBeenCalledWith('/todos');
-  expect([...el.shadowRoot.querySelectorAll('li .tag')].map((n) => n.textContent)).toEqual(['Computer 42']);
+  expect([...el.shadowRoot.querySelectorAll('li .tag')].map((n) => n.textContent)).toEqual([`${en('todo.computer')} 42`]);
 
   el.shadowRoot.querySelector('.new-title').value = 'Call IT';
   el.shadowRoot.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true }));

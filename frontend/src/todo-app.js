@@ -27,11 +27,16 @@
  *   - path is relative to this plugin's API, e.g. '/todos/1'
  *   - resolves to the parsed JSON response, or null when there is no body
  *   - rejects with an Error whose message is safe to show the user
+ *   sdk.i18n.translate(key) / subscribe(listener)
+ *   - the application's translations, the Core's own; the plugin bundles none
+ *   - a change of language is no new mount: the page is told through
+ *     subscribe and redraws its words in place (plugin-translation.js)
  */
 
 import styles from './styles.css?inline';
 import { mountPredefinedLists } from './pages/predefined-lists.js';
 import { mountTodoList } from './pages/todo-list.js';
+import { missingI18n } from './plugin-translation.js';
 
 /** The plugin's pages, keyed by sub-path. The first one is the default. */
 const PAGES = [
@@ -68,7 +73,7 @@ export function resolvePage(path) {
  *
  * @param {HTMLElement} el Container owned by the host.
  * @param {object} options
- * @param {object} options.sdk Host SDK. Only sdk.api is used.
+ * @param {object} options.sdk Host SDK. sdk.api and sdk.i18n are used.
  * @param {string} [options.path] Sub-path below the plugin root, e.g. '/predefined'.
  * @returns {() => void} Unmount function.
  */
@@ -76,11 +81,14 @@ export function mount(el, { sdk, path } = {}) {
   if (!(el instanceof HTMLElement)) {
     throw new Error('todo-plugin: mount() needs a container element');
   }
-  const missing = API_METHODS.filter((m) => typeof sdk?.api?.[m] !== 'function');
+  const missing = [
+    ...API_METHODS.filter((m) => typeof sdk?.api?.[m] !== 'function').map((m) => `sdk.api.${m}`),
+    ...missingI18n(sdk),
+  ];
   if (missing.length) {
-    throw new Error(`todo-plugin: mount() needs { sdk } with sdk.api.${missing.join(', sdk.api.')}`);
+    throw new Error(`todo-plugin: mount() needs { sdk } with ${missing.join(', ')}`);
   }
-  const { api } = sdk;
+  const { api, i18n } = sdk;
 
   // Remount cleanly. React StrictMode mounts, unmounts, then mounts again.
   unmount(el);
@@ -90,7 +98,7 @@ export function mount(el, { sdk, path } = {}) {
   root.innerHTML = `<style>${styles}</style>`;
 
   const page = resolvePage(path);
-  const teardownPage = page.mount(root, { api });
+  const teardownPage = page.mount(root, { api, i18n });
 
   instances.set(el, () => {
     teardownPage();
