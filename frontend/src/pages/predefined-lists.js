@@ -4,22 +4,25 @@
  * ...". View, create, edit and delete them. Turning a template into real
  * todos is a later feature.
  *
- *   const teardown = mountPredefinedLists(shadowRoot, { api });
+ *   const teardown = mountPredefinedLists(shadowRoot, { api, i18n });
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
- * place) and talks to the API only through `api` (see todo-app.js).
+ * place) and talks to the API only through `api` (see todo-app.js). Its
+ * words come from `i18n`, the application's translations, through the
+ * plugin's translation helper: a change of language redraws them in place.
  */
 
+import { createPluginTranslation } from '../plugin-translation.js';
 import { appendHtml, describeUser, whoIsCalling } from './shared.js';
 
 const TEMPLATE = `
   <main class="todo">
-    <h1>Predefined to do lists</h1>
+    <h1 data-i18n="todo.predefined-title"></h1>
     <p class="who" hidden></p>
     <form class="add-form template-form">
-      <input type="text" class="new-name" placeholder="List name, e.g. New Employee Setup" autocomplete="off" required>
-      <textarea class="new-items" rows="4" placeholder="One item per line" required></textarea>
-      <button type="submit" class="primary">Add list</button>
+      <input type="text" class="new-name" data-i18n-placeholder="todo.list-name-placeholder" autocomplete="off" required>
+      <textarea class="new-items" rows="4" data-i18n-placeholder="todo.list-items-placeholder" required></textarea>
+      <button type="submit" class="primary" data-i18n="todo.add-list"></button>
     </form>
     <ul class="list"></ul>
     <p class="error" hidden></p>
@@ -31,8 +34,9 @@ function parseItems(text) {
   return String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-export function mountPredefinedLists(root, { api }) {
+export function mountPredefinedLists(root, { api, i18n }) {
   appendHtml(root, TEMPLATE);
+  const texts = createPluginTranslation(i18n, root);
 
   const list = root.querySelector('.list');
   const form = root.querySelector('.template-form');
@@ -45,11 +49,20 @@ export function mountPredefinedLists(root, { api }) {
   let editingId = null;
   // Until GET /me says otherwise. The service enforces it either way.
   let canWrite = true;
+  let me = null;
 
+  /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
     if (destroyed) return;
-    errorBox.textContent = msg;
+    texts.plain(errorBox, msg);
     errorBox.hidden = !msg;
+  };
+
+  /** Something wrong with what was entered, in the plugin's own words. */
+  const showProblem = (key) => {
+    if (destroyed) return;
+    texts.text(errorBox, key);
+    errorBox.hidden = false;
   };
 
   function renderEditor(li, template) {
@@ -69,13 +82,13 @@ export function mountPredefinedLists(root, { api }) {
     actions.className = 'actions';
 
     const ok = document.createElement('button');
-    ok.textContent = 'Save';
+    texts.text(ok, 'todo.save');
     ok.className = 'primary';
     ok.onclick = () => save(template.id, name.value, items.value);
     actions.append(ok);
 
     const cancel = document.createElement('button');
-    cancel.textContent = 'Cancel';
+    texts.text(cancel, 'todo.cancel');
     cancel.onclick = () => { editingId = null; load(); };
     actions.append(cancel);
 
@@ -102,12 +115,12 @@ export function mountPredefinedLists(root, { api }) {
 
     if (canWrite) {
       const editBtn = document.createElement('button');
-      editBtn.textContent = 'Edit';
+      texts.text(editBtn, 'todo.edit');
       editBtn.onclick = () => { editingId = template.id; load(); };
       head.append(editBtn);
 
       const del = document.createElement('button');
-      del.textContent = 'Delete';
+      texts.text(del, 'todo.delete');
       del.onclick = () => remove(template.id);
       head.append(del);
     }
@@ -127,7 +140,10 @@ export function mountPredefinedLists(root, { api }) {
     if (destroyed) return;
     list.innerHTML = '';
     if (!templates.length) {
-      list.innerHTML = '<p class="empty">No predefined lists yet.</p>';
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      texts.text(empty, 'todo.no-predefined-lists');
+      list.append(empty);
       return;
     }
     for (const template of templates) {
@@ -139,12 +155,20 @@ export function mountPredefinedLists(root, { api }) {
     }
   }
 
-  async function loadIdentity() {
-    const me = await whoIsCalling(api);
-    if (!me || destroyed) return;
-    canWrite = me.canWrite;
-    who.textContent = describeUser(me);
+  /** Who is signed in, in the words of the moment. */
+  function drawWho() {
+    if (!me) return;
+    who.textContent = describeUser(me, texts.t);
     who.hidden = !who.textContent;
+  }
+  texts.onChange(drawWho);
+
+  async function loadIdentity() {
+    const found = await whoIsCalling(api);
+    if (!found || destroyed) return;
+    me = found;
+    canWrite = me.canWrite;
+    drawWho();
     form.hidden = !canWrite;
   }
 
@@ -159,8 +183,8 @@ export function mountPredefinedLists(root, { api }) {
 
   async function save(id, name, itemsText) {
     const items = parseItems(itemsText);
-    if (!name.trim()) return showError('Give the list a name.');
-    if (!items.length) return showError('Add at least one item, one per line.');
+    if (!name.trim()) return showProblem('todo.list-name-required');
+    if (!items.length) return showProblem('todo.list-items-required');
     try {
       await api.put(`/predefined-lists/${id}`, { name: name.trim(), items });
       editingId = null;
@@ -184,7 +208,7 @@ export function mountPredefinedLists(root, { api }) {
     const name = nameInput.value.trim();
     const items = parseItems(itemsInput.value);
     if (!name) return;
-    if (!items.length) return showError('Add at least one item, one per line.');
+    if (!items.length) return showProblem('todo.list-items-required');
     try {
       await api.post('/predefined-lists', { name, items });
       nameInput.value = '';
@@ -199,5 +223,6 @@ export function mountPredefinedLists(root, { api }) {
 
   return () => {
     destroyed = true;
+    texts.stop();
   };
 }

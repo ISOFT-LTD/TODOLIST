@@ -43,6 +43,10 @@ class Todo:
     # into Core's database, never the username (which can change).
     tenant_id: str = ""
     owner: str = ""
+    # The Core computer this todo is about, when it was added from a Computer
+    # Details page. Core's own id for it, kept as given; None for a todo that
+    # is about no computer. Rows from before this field have none.
+    computer_id: Optional[int] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -52,28 +56,35 @@ class Todo:
 
     @staticmethod
     def from_dict(raw: dict) -> "Todo":
+        computer_id = raw.get("computer_id")
         return Todo(
             id=int(raw["id"]),
             title=str(raw["title"]),
             done=bool(raw.get("done", False)),
             tenant_id=str(raw.get("tenant_id") or ""),
             owner=str(raw.get("owner") or ""),
+            computer_id=None if computer_id is None else int(computer_id),
         )
 
 
-def list_todos(tenant_id: str, owner: str) -> List[Todo]:
-    """This person's todos, newest first."""
+def list_todos(tenant_id: str, owner: str,
+               computer_id: Optional[int] = None) -> List[Todo]:
+    """This person's todos, newest first - only those about one computer when
+    ``computer_id`` is given."""
     todos = (Todo.from_dict(row) for row in read_todos())
     mine = (todo for todo in todos if todo.belongs_to(tenant_id, owner))
+    if computer_id is not None:
+        mine = (todo for todo in mine if todo.computer_id == computer_id)
     return sorted(mine, key=lambda t: t.id, reverse=True)
 
 
-def create_todo(tenant_id: str, owner: str, title: str) -> Todo:
+def create_todo(tenant_id: str, owner: str, title: str,
+                computer_id: Optional[int] = None) -> Todo:
     """Append a new todo for this person and return it."""
     with storage_lock:
         rows = read_todos()
         todo = Todo(id=_next_id(rows), title=title, done=False,
-                    tenant_id=tenant_id, owner=owner)
+                    tenant_id=tenant_id, owner=owner, computer_id=computer_id)
         rows.append(todo.to_dict())
         write_todos(rows)
     return todo

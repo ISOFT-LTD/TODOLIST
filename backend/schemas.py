@@ -24,6 +24,9 @@ class TodoBase(BaseModel):
 class TodoCreate(TodoBase):
     """Payload for creating a todo."""
 
+    computer_id: Optional[int] = Field(
+        None, ge=1, description="The Core computer this todo is about, if any")
+
 
 class TodoUpdate(BaseModel):
     """Payload for updating a todo. Both fields are optional."""
@@ -40,6 +43,7 @@ class TodoOut(BaseModel):
     id: int
     title: str
     done: bool
+    computer_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 

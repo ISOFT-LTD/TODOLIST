@@ -93,7 +93,7 @@ def test_create_update_complete_delete(client):
     created = client.post("/api/todos", json={"title": "  write the report  "}, headers=as_user())
     assert created.status_code == 201
     todo = created.json()
-    assert todo == {"id": todo["id"], "title": "write the report", "done": False}
+    assert todo == {"id": todo["id"], "title": "write the report", "done": False, "computer_id": None}
 
     renamed = client.put(f"/api/todos/{todo['id']}", json={"title": "send the report"}, headers=as_user())
     assert renamed.json()["title"] == "send the report"

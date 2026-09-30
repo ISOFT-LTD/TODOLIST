@@ -102,7 +102,7 @@ app's manifest from the running app and registers it:
 docker compose exec app python scripts/install_application.py --from-service todo
 ```
 
-It prints `Todo List (todo 1.2.0): registered` and a checklist. Installing
+It prints `Todo List (todo 1.3.0): registered` and a checklist. Installing
 again after an upgrade is the same command. From a browser instead, as an
 administrator: `POST /auth/applications/install` with this repository's
 `manifest.json` as the body.
@@ -114,6 +114,17 @@ add, edit, tick and delete.
 **7. Open it:** log in to Cobalt, then in the same browser go to
 `https://<core-hostname>:3008/apps/todo/`. The two links at the top switch
 between the To do List and the Predefined to do lists.
+
+**8. Give the app its texts.** The UI holds no words of its own, in any
+language: every text is a key, and the text for it comes from the application's
+translation database through the Core (see [Text and
+translations](#text-and-translations)). The keys are listed in
+[`frontend/translations/todo-translation-keys.xlsx`](frontend/translations/todo-translation-keys.xlsx):
+one column, `key`, nothing else. Add a row to the translation database for
+each of them, with its text in every language, then sign in again. A key with
+no row is shown as the key (`todo.title`) - in the ITSM shell until its row
+exists, and always on the standalone page at `/apps/todo/`, which has no
+translations to read.
 
 ### When it does not work
 
@@ -147,8 +158,16 @@ TODOLIST/
     ├── src/todo-app.js      the plugin shell, exposed as the federated ./TodoApp:
     │                        mount/unmount, and which page a sub-path shows
     ├── src/pages/           the pages: todo-list.js, predefined-lists.js
+    ├── src/extensions/      Computer Details contributions: ./ComputerTodoAction,
+    │                        ./ComputerTodoTab, and the mount contract they share
+    ├── src/plugin-translation.js
+    │                        the plugin's text, read from the Core through sdk.i18n
+    ├── src/todo-events.js   "todos changed", between the plugin's own modules
     ├── src/core-sdk.js      the SDK the standalone page uses: calls through Core
     ├── src/main.js          the standalone page
+    ├── src/testing/         stand-ins for the tests only: never shipped
+    ├── translations/        the plugin's key inventory - keys only, no texts:
+    │                        the CSV, the workbook built from it, their tools
     └── nginx.conf.template  serves the UI, hands /api/ to the backend
 ```
 
@@ -179,14 +198,26 @@ Tests:
 python -m pytest backend/tests
 ```
 
+```bash
+cd frontend && npm test
+```
+
+After adding or removing a key, update the key inventory
+(`frontend/translations/todo-translation-keys.csv`) and rebuild its workbook;
+a test fails until the code, the inventory and the workbook agree:
+
+```bash
+cd frontend && npm run translation-keys
+```
+
 ## API
 
 All under the backend's `/api`; through Core, under `/apps/todo/api`.
 
 | Method | Path | Needs |
 |---|---|---|
-| GET | `/api/todos` | `todo.todo.read` - this user's todos, newest first |
-| POST | `/api/todos` | `todo.todo.all` |
+| GET | `/api/todos` | `todo.todo.read` - this user's todos, newest first; `?computer_id=N` for one computer's |
+| POST | `/api/todos` | `todo.todo.all` - `{ "title", "computer_id"? }` |
 | PUT | `/api/todos/{id}` | `todo.todo.all` - title and/or done |
 | DELETE | `/api/todos/{id}` | `todo.todo.all` |
 | GET | `/api/predefined-lists` | `todo.todo.read` - this user's predefined lists, newest first |
@@ -207,6 +238,11 @@ create, such as *New Employee Setup: create account, assign laptop, configure
 email*. Both fields are trimmed; a blank name, an empty list or a blank item is
 refused (422). Creating real todos from a template is not implemented yet.
 
+A todo can be **about a Core computer**: `computer_id` is Core's own id for
+it, as the Computer Details page passes it, kept as given (a positive integer,
+never checked against Core). A todo without one has `null`. Todos only gain a
+computer when created with one; updating a todo keeps it.
+
 ## Integration
 
 ### manifest.json
@@ -219,8 +255,8 @@ in the manifest: Core takes it from `COBALT_APP_URL_TODO`, so shipping a
 manifest cannot redirect Core's traffic. The `frontend` section is for the ITSM
 shell.
 
-**`navigation`** uses the grouped contract: one group, **To do**, with two
-children that both belong to this one plugin:
+**`navigation`** uses the grouped contract: one group, labelled by the key
+`to-do`, with two children that both belong to this one plugin:
 
 | Label | Path | Permission |
 |---|---|---|
@@ -230,13 +266,34 @@ children that both belong to this one plugin:
 Both load the same federated module; the sub-path below the plugin's root
 (`''` or `/predefined`) tells it which page to render (see below).
 
+The Core draws every label and translates it. The group's label is written
+as a key, `to-do`, and is in the key inventory. The two page labels are
+**still words, and that is not settled**: in the Core's contract a page's
+`label` is one field with two uses. See
+[Page labels](#page-labels-blocked-by-the-cores-contract).
+
+**`contributes`** puts this plugin into Core pages, at the extension targets
+the Core defines. The Core decides where each renders, filters them by the
+user's permissions, orders, loads, mounts, updates and unmounts them:
+
+| id | Target | Exposed module | Permission | Tab |
+|---|---|---|---|---|
+| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | `todo.todo.all` | - |
+| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | `todo.todo.read` | label `to-do` (a key), `fa-square-check` |
+
+Contribution permissions use the Core's own names, `<app>.<tab>.read|all`,
+not the navigation's `todo:read` spelling. The header action adds todos, so
+only users who may add them see it; the tab is shown to readers, without the
+add form when they cannot write. The tab's label is a key: the Core draws
+the tab and translates it.
+
 ### Module Federation remote
 
 | | |
 |---|---|
 | Remote name | `todo_plugin` |
 | Entry | `remoteEntry.js` - through Core, `/apps/todo/remoteEntry.js` |
-| Exposed module | `./TodoApp` |
+| Exposed modules | `./TodoApp` (the pages), `./ComputerTodoAction`, `./ComputerTodoTab` (contributions) |
 | Shared dependencies | none |
 
 ```js
@@ -251,10 +308,35 @@ passes no `path`, the plugin reads it off the page URL, so a shell that only
 routes the address bar still lands on the right page. To switch pages, unmount
 and mount again with the new path.
 
+### Computer Details contributions
+
+Each contribution module exports `mount(el, context, sdk)`, the Core's
+contribution contract, and is a different contract from `./TodoApp`'s:
+
+```js
+const { mount } = await loadRemote('todo_plugin/ComputerTodoTab');
+const handle = mount(hostElement, { computerId: 42 }, sdk);
+handle.update({ computerId: 43 }); // same host, another computer
+handle.unmount();                  // host going away: renders nothing any more
+```
+
+| Module | Renders |
+|---|---|
+| `./ComputerTodoAction` | A compact **Add Todo** button. It opens a small dialog that adds a todo with this `computer_id`, then asks the Core for a success toast (`sdk.notify`). |
+| `./ComputerTodoTab` | The To do List scoped to the computer: its todos, ticked, edited and deleted as on the standalone page, and new ones added to it. |
+
+Both render in a shadow root on `el` and touch nothing outside it; `update()`
+redraws only when `computerId` changes, and `unmount()` is safe to repeat. A
+todo added from the header shows up in the open tab without a reload: the two
+modules share the plugin's own `todo-events.js`, never the Core's DOM. A
+context without a usable `computerId` renders nothing (the action) or a short
+notice (the tab), instead of failing.
+
 ### SDK contract
 
 The UI never imports Core code. Everything goes through the `sdk` passed to
-`mount`; only `sdk.api` is used:
+`mount`; the pages use `sdk.api` and `sdk.i18n`, and the contributions also
+`sdk.notify` when the Core provides it:
 
 | Method | Example |
 |---|---|
@@ -262,9 +344,12 @@ The UI never imports Core code. Everything goes through the `sdk` passed to
 | `sdk.api.post(path, body)` | `sdk.api.post('/todos', { title })` |
 | `sdk.api.put(path, body)` | `sdk.api.put('/todos/1', { done: true })` |
 | `sdk.api.delete(path)` | `sdk.api.delete('/todos/1')` |
+| `sdk.i18n.translate(key)` | `sdk.i18n.translate('todo.add')` - the text in the user's language, or the key |
+| `sdk.i18n.subscribe(listener)` | called when the translations have changed; returns what ends it |
 
 `path` is relative to the app's API. Each call resolves to the parsed JSON (or
-`null`) and rejects with an `Error` whose message is safe to show.
+`null`) and rejects with an `Error` whose message is safe to show. `mount`
+refuses an SDK that lacks any of these.
 
 - **The ITSM shell's SDK** must send `path` to
   `<Core>/apps/todo/api<path>` with `credentials: 'include'`, and never add a
@@ -276,6 +361,147 @@ The UI never imports Core code. Everything goes through the `sdk` passed to
 The UI renders in a shadow root, so the shell's CSS and the app's cannot leak
 into each other, and the build uses relative paths, so it works under
 `/apps/todo/` or any other prefix.
+
+### Text and translations
+
+**This project holds translation keys only.** There is no text of the UI in
+it in any language: no English, no Portuguese, no fallback for a missing
+translation, no `en.json`, no `locales/`, no table of words in the code or
+beside it, and no request for translations. The centralized translation
+database is the only source of what a user reads.
+
+```
+translation database                the only place a text is kept
+        ↓
+the Core's translation API          requested by the Core, and by nobody else
+        ↓
+the Core's translations
+        ├──→ Core UI, and the plugin's labels the Core draws (sidebar, tab)
+        └──→ sdk.i18n  →  this plugin's pages and contributions
+```
+
+Every text the plugin draws is asked for by a key of the form `todo.<key>`:
+
+```js
+texts.t('todo.add')
+```
+
+and what `sdk.i18n.translate` answers is what is shown, whatever it is. When
+the database has no row for a key the Core answers with the key, and the key
+is what the user sees - `todo.add`. That is deliberate: a missing row stays
+visible instead of hiding behind words the plugin made up.
+
+**The helper.**
+[`frontend/src/plugin-translation.js`](frontend/src/plugin-translation.js)
+is the one place that reads `sdk.i18n.translate` and listens to
+`sdk.i18n.subscribe`. It is the vanilla-JS counterpart of the
+`usePluginTranslation()` helper the Core's skeleton gives React plugins -
+this plugin has no React. A page or a contribution creates one for its root
+and asks it for text; it never subscribes itself.
+
+| | |
+|---|---|
+| `<h1 data-i18n="todo.title"></h1>` | Markup names its text by key, and holds none. |
+| `data-i18n-placeholder`, `-title`, `-aria-label` | The same for an attribute. |
+| `texts.text(el, 'todo.edit')` | An element made later. |
+| `texts.t('todo.computer')` + the id | Text composed with data: the word by key, the data as it is. Redrawn through `texts.onChange`. |
+| `texts.plain(el, error.message)` | Data, shown as it is and never looked up. |
+| `texts.stop()` | In the teardown: ends the one subscription. |
+
+**A change of language** reaches a mounted page or contribution through
+`sdk.i18n.subscribe` and nothing else: no unmount, no mount, no new SDK, no
+request. The helper redraws every text in place, so the elements stay, and
+with them what the user typed and what the page holds.
+
+**Data is not text.** Todo titles, list names and items, the user's name, the
+computer id and whatever an API answered are shown as they are, never looked
+up as keys.
+
+**Errors.** What is wrong with what the user entered is the plugin's to say,
+and it says it by key. An error of the API is worded by the SDK and reaches
+the plugin as data. The `todo-plugin: mount() needs ...` messages are thrown
+at the host when it breaks the mount contract - no element, or an SDK without
+`sdk.api` or `sdk.i18n`. They are for whoever integrates the plugin, and the
+one about `sdk.i18n` could not be translated in any case. The Core's page
+host does print the message of a failed `mount` under its own "could not be
+loaded" text, so a broken integration would show one on screen.
+
+**The key inventory.**
+[`frontend/translations/todo-translation-keys.csv`](frontend/translations/todo-translation-keys.csv)
+is the one authoritative list of the keys this plugin asks for: one column,
+`key`, one key on each line, sorted. It holds no text and cannot: reading it
+fails on anything that is not a key. It is a text file so that a review can
+read it and a diff can show it.
+[`todo-translation-keys.xlsx`](frontend/translations/todo-translation-keys.xlsx)
+is the same keys in the one column of a sheet, built from the CSV by
+`npm run translation-keys` with no dependency, for whoever prepares the rows
+of the translation database. Neither is a catalog. Nothing the plugin ships
+imports them.
+
+`npm test` fails when:
+
+- a key the code or the manifest asks for is missing from the inventory, or
+  the inventory holds a key nothing asks for;
+- the inventory holds anything but keys - a second column, a space, a
+  capital - or a key twice, or out of order;
+- the workbook is not exactly what the inventory builds;
+- a key is built at run time instead of written out;
+- the code puts words of its own behind a key (`t(key) || '...'`, and the
+  like);
+- a surface of the plugin shows a word that did not come from `sdk.i18n`:
+  every page and contribution, and the dialog, is drawn in every state it
+  can be in - before the API answers, with data, empty, read-only, being
+  edited, refusing what was entered, with an API error, after a change of
+  language - with translations that answer each key as a mark, and read
+  back.
+
+The tests hold no translations either. Their stand-in for `sdk.i18n` answers
+a key with the key itself, marked with the language: `⟦en:todo.add⟧`, and
+`⟦pt:todo.add⟧` after a change.
+
+**Keys.** The plugin's own are `todo.<key>`. It reads no key of the Core's.
+The label the Core draws for the group and for the Computer Details tab is
+the key `to-do`.
+
+> `todo.*` and `to-do` do not start with `plugin.`, which is the namespace
+> the Core's documents reserve for plugins (`plugin.<id>.<key>`); by those
+> documents a key without that prefix is a key of the Core. Whoever adds the
+> rows must check that none of these keys is already in use, above all
+> `to-do`.
+
+#### Page labels: blocked by the Core's contract
+
+The two page labels in `manifest.json` are still English words, and this
+repository cannot change that on its own. In the Core, the `label` of a
+group's child is one field with two uses that cannot be separated:
+
+```
+navigation child { path, label }
+        │
+        ├─→ tabName = label, exactly as written     (api/fetchPlugins.ts, pageOfGroup)
+        │     └─→ looked up in the user's allowed_tabs by exact tab_name
+        │           └─→ sidebar entry shown / hidden, route open / 403
+        │
+        └─→ key = label in lower case, spaces as hyphens   (sidebarTranslationKey)
+              └─→ the application's translations  →  the text on screen
+```
+
+| Label | It is the tab | The Core translates it by |
+|---|---|---|
+| `To do List` | `To do List` | `to-do-list` |
+| `Predefined to do list` | `Predefined to do list` | `predefined-to-do-list` |
+| `todo.list` (a key) | `todo.list` | `todo.list` |
+
+So the text on screen is already translated, by a key the Core derives. But
+writing a key as the label renames the tab: the page is then granted only to
+users whose `allowed_tabs` holds that exact name, and the names of the tabs
+are the Core's - its permission data - not this plugin's. The Core's own
+notes say its login data names these tabs `todo-list` and `todo-predefined`,
+which is neither of the labels above. What the Core's backend sends as the
+label of each page could not be checked from here. Until it is decided
+there - a label that is a key *and* the tab's name, or a field of its own
+for the tab - the labels stay as they are, their keys are not in the
+inventory, and the test suite carries an open `todo` for it.
 
 ## Configuration
 
@@ -318,3 +544,9 @@ Deliberate for a throwaway POC:
 - **The ITSM panel's menu comes from the manifest's `navigation`.** Until the
   shell renders it, the standalone page's two links are the way between the
   pages.
+- **The standalone page shows keys, not words.** Its SDK
+  (`frontend/src/core-sdk.js`) has no translations to read, and the app
+  holds none, so everything on `/apps/todo/` reads as its key: the pages, the
+  two links at the top, the page title (`todo.title`) and the SDK's own
+  errors (`todo.error-session-ended`). Text appears where the Core's
+  translations are: in the ITSM shell.

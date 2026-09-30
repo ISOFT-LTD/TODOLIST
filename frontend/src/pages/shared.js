@@ -26,8 +26,12 @@ export async function whoIsCalling(api) {
   }
 }
 
-/** The "Signed in as ..." line, or '' when there is nothing to say. */
-export function describeUser(me) {
+/**
+ * The "Signed in as ..." line, or '' when there is nothing to say. `t` gives
+ * the words of the moment; the name is data and stays as it is.
+ */
+export function describeUser(me, t) {
   if (!me?.name) return '';
-  return `Signed in as ${me.name}${me.canWrite ? '' : ' - read only'}`;
+  const signedIn = `${t('todo.signed-in-as')} ${me.name}`;
+  return me.canWrite ? signedIn : `${signedIn} - ${t('todo.read-only-suffix')}`;
 }
