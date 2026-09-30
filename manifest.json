@@ -25,19 +25,20 @@
 
   "navigation": [
     {
-      "label": "to-do",
+      "label": "todo",
       "icon": "fa-square-check",
       "order": 100,
+      
       "children": [
         {
-          "label": "To do List",
+          "label": "todo-list",
           "path": "/plugins/ui/todo",
           "permission": "todo:read",
           "subTab": "list",
           "order": 100
         },
         {
-          "label": "Predefined to do list",
+          "label": "predefined-todo-list",
           "path": "/plugins/ui/todo/predefined",
           "permission": "todo:read",
           "subTab": "predefined",
@@ -73,7 +74,7 @@
       "target": "computer.details.tabs",
       "exposedModule": "./ComputerTodoTab",
       "permission": "todo.todo.read",
-      "label": "to-do",
+      "label": "todo",
       "icon": "fa-square-check",
       "order": 100
     }
