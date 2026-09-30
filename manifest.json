@@ -28,21 +28,21 @@
       "label": "todo",
       "icon": "fa-square-check",
       "order": 100,
-      
+      "path": "/plugins/ui/todo",
       "children": [
         {
           "label": "todo-list",
           "path": "/plugins/ui/todo",
           "permission": "todo:read",
           "subTab": "list",
-          "order": 100
+          "order": 101
         },
         {
           "label": "predefined-todo-list",
           "path": "/plugins/ui/todo/predefined",
           "permission": "todo:read",
           "subTab": "predefined",
-          "order": 101
+          "order": 102
         }
       ]
     }
