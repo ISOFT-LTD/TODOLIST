@@ -460,48 +460,34 @@ a key with the key itself, marked with the language: `⟦en:todo.add⟧`, and
 `⟦pt:todo.add⟧` after a change.
 
 **Keys.** The plugin's own are `todo.<key>`. It reads no key of the Core's.
-The label the Core draws for the group and for the Computer Details tab is
-the key `to-do`.
+The labels the Core draws are keys too: `todo` for the group and for the
+Computer Details tab, `todo-list` and `predefined-todo-list` for the two
+pages.
 
-> `todo.*` and `to-do` do not start with `plugin.`, which is the namespace
-> the Core's documents reserve for plugins (`plugin.<id>.<key>`); by those
-> documents a key without that prefix is a key of the Core. Whoever adds the
-> rows must check that none of these keys is already in use, above all
-> `to-do`.
+> `todo`, `todo-list`, `predefined-todo-list` and `todo.*` do not start with
+> `plugin.`, which is the namespace the Core's documents reserve for plugins
+> (`plugin.<id>.<key>`); by those documents a key without that prefix is a
+> key of the Core. Whoever adds the rows must check that none of these keys
+> is already in use, above all `todo`.
 
-#### Page labels: blocked by the Core's contract
+#### Page labels and the panel's page gate
 
-The two page labels in `manifest.json` are still English words, and this
-repository cannot change that on its own. In the Core, the `label` of a
-group's child is one field with two uses that cannot be separated:
+The two page labels are keys, and each page names its own `subTab`, so Core
+gives it a sub tab of its own, `todo-<subTab>`: `todo-list` and
+`todo-predefined`. The label no longer has to be the tab's name for Core.
 
-```
-navigation child { path, label }
-        │
-        ├─→ tabName = label, exactly as written     (api/fetchPlugins.ts, pageOfGroup)
-        │     └─→ looked up in the user's allowed_tabs by exact tab_name
-        │           └─→ sidebar entry shown / hidden, route open / 403
-        │
-        └─→ key = label in lower case, spaces as hyphens   (sidebarTranslationKey)
-              └─→ the application's translations  →  the text on screen
-```
+The panel still has one use of the label left over: its page gate takes the
+label, exactly as written, as the page's tab name (`api/fetchPlugins.ts`,
+`pageOfGroup`) and looks it up in the user's `allowed_tabs`:
 
-| Label | It is the tab | The Core translates it by |
+| Label | The panel's gate looks for | Core's sub tab |
 |---|---|---|
-| `To do List` | `To do List` | `to-do-list` |
-| `Predefined to do list` | `Predefined to do list` | `predefined-to-do-list` |
-| `todo.list` (a key) | `todo.list` | `todo.list` |
+| `todo-list` | `todo-list` | `todo-list` |
+| `predefined-todo-list` | `predefined-todo-list` | `todo-predefined` |
 
-So the text on screen is already translated, by a key the Core derives. But
-writing a key as the label renames the tab: the page is then granted only to
-users whose `allowed_tabs` holds that exact name, and the names of the tabs
-are the Core's - its permission data - not this plugin's. The Core's own
-notes say its login data names these tabs `todo-list` and `todo-predefined`,
-which is neither of the labels above. What the Core's backend sends as the
-label of each page could not be checked from here. Until it is decided
-there - a label that is a key *and* the tab's name, or a field of its own
-for the tab - the labels stay as they are, their keys are not in the
-inventory, and the test suite carries an open `todo` for it.
+So until the panel gates a page on the tab Core returns for it (itsm-front,
+branch `forge-panel-fixes`), the Predefined page is hidden by the panel even
+from users Core lets in. The test suite keeps an open `todo` for it.
 
 ## Configuration
 
