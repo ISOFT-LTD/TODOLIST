@@ -1,0 +1,8 @@
+# Everything in this app runs on Linux, in its images. Keep LF in the working copy on every
+# platform, so a file edited or built on Windows is the same file the images get.
+* text=auto eol=lf
+
+*.whl binary
+*.xlsx binary
+*.png binary
+*.svg text eol=lf
