@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "todo",
   "name": "Todo List",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy",
   "icon": "fa-square-check",
 
@@ -28,7 +28,6 @@
       "label": "todo",
       "icon": "fa-square-check",
       "order": 100,
-      
       "children": [
         {
           "label": "todo-list",
@@ -40,7 +39,7 @@
         {
           "label": "predefined-todo-list",
           "path": "/plugins/ui/todo/predefined",
-          "permission": "todo:read",
+          "permission": "todo.view",
           "subTab": "predefined",
           "order": 101
         }
@@ -66,14 +65,14 @@
       "id": "computer-todo-action",
       "target": "computer.details.header.actions",
       "exposedModule": "./ComputerTodoAction",
-      "permission": "todo.todo.all",
+      "permission": "todo.manage",
       "order": 100
     },
     {
       "id": "computer-todo-tab",
       "target": "computer.details.tabs",
       "exposedModule": "./ComputerTodoTab",
-      "permission": "todo.todo.read",
+      "permission": "todo.view",
       "label": "todo",
       "icon": "fa-square-check",
       "order": 100
@@ -85,10 +84,5 @@
     "healthCheck": "/api/health",
     "manifest": "/api/manifest",
     "openapi": "/api/openapi.json"
-  },
-
-  "permissions": [
-    { "key": "todo:read", "description": "View todo items and predefined lists", "tab": "todo", "level": "read" },
-    { "key": "todo:write", "description": "Create, edit and delete todo items and predefined lists", "tab": "todo", "level": "all" }
-  ]
+  }
 }
