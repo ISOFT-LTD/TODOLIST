@@ -5,24 +5,25 @@
   "version": "1.3.0",
   "description": "A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy",
   "icon": "fa-square-check",
-
   "compatibility": {
     "mountApiVersion": 1,
-    "coreIdentity": 1,
-    "coreMin": "1.0.0"
+    "hostApiVersion": 1,
+    "sdkApiVersion": 1
   },
-
   "core": {
-    "tabKeys": ["todo"],
+    "tabKeys": [
+      "todo"
+    ],
     "roleNames": [],
-    "tokenTtlSeconds": 180
+    "tokenTtlSeconds": 180,
+    "tabLabels": {
+      "todo": "Todo List"
+    }
   },
-
   "routes": {
     "frontend": "/apps/todo/",
     "backend": "/apps/todo/api"
   },
-
   "navigation": [
     {
       "label": "todo",
@@ -47,7 +48,6 @@
       ]
     }
   ],
-
   "frontend": {
     "type": "module-federation",
     "bundler": "vite",
@@ -57,38 +57,46 @@
     "exposedModule": "./TodoApp",
     "mountFunction": "mount",
     "unmountFunction": "unmount",
-    "sdk": ["api", "i18n"],
+    "sdk": [
+      "api",
+      "i18n"
+    ],
     "shared": []
   },
-
+  "permissions": [
+    {
+      "key": "todo:read",
+      "description": "View todo items and predefined lists",
+      "tab": "todo",
+      "level": "read"
+    },
+    {
+      "key": "todo:write",
+      "description": "Create, edit and delete todo items and predefined lists",
+      "tab": "todo",
+      "level": "all"
+    }
+  ],
   "contributes": [
     {
       "id": "computer-todo-action",
       "target": "computer.details.header.actions",
       "exposedModule": "./ComputerTodoAction",
-      "permission": "todo.todo.all",
       "order": 100
     },
     {
       "id": "computer-todo-tab",
       "target": "computer.details.tabs",
-      "exposedModule": "./ComputerTodoTab",
-      "permission": "todo.todo.read",
       "label": "todo",
       "icon": "fa-square-check",
+      "exposedModule": "./ComputerTodoTab",
       "order": 100
     }
   ],
-
   "backend": {
     "apiRoot": "/api",
     "healthCheck": "/api/health",
     "manifest": "/api/manifest",
     "openapi": "/api/openapi.json"
-  },
-
-  "permissions": [
-    { "key": "todo:read", "description": "View todo items and predefined lists", "tab": "todo", "level": "read" },
-    { "key": "todo:write", "description": "Create, edit and delete todo items and predefined lists", "tab": "todo", "level": "all" }
-  ]
+  }
 }

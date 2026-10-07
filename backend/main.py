@@ -181,8 +181,9 @@ def manifest():
     """This app's manifest. Open: Core reads it to install the app, and it
     holds nothing secret.
 
-    Read per request rather than cached, so editing manifest.json during the
-    POC does not need a restart.
+    manifest.json is pulsar.yaml rendered by forge-sdk
+    (scripts/render_manifest.py), never edited by hand. The image carries it
+    at MANIFEST_PATH.
     """
     try:
         with open(MANIFEST_PATH, "r", encoding="utf-8") as fh:

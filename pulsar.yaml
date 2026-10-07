@@ -1,0 +1,135 @@
+apiVersion: pulsar.ao/v1
+kind: App
+
+# The only file anybody edits to say what this app is. Forge reads it to install, upgrade and roll
+# back the app. manifest.json, which the backend serves to Cobalt Core at /api/manifest, is this
+# file rendered by forge-sdk: run python scripts/render_manifest.py after every change (the backend
+# tests fail while they disagree). Check it with: forge validate .
+#
+# The labels are translation keys (todo, todo-list, predefined-todo-list): the panel translates
+# them, and frontend/translations/ holds their words.
+
+metadata:
+  id: todo
+  name: Todo List
+  version: 1.3.0
+  vendor: ITEC
+  description: A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy
+  license: proprietary
+  icon: fa-square-check
+  tags: [productivity]
+
+compatibility:
+  core: ">=1.0.0"
+  forge: ">=1.0.0, <2.0.0"
+  mountApiVersion: 1
+
+core:
+  tabKeys: [todo]
+  tabLabels:
+    todo: Todo List
+  roleNames: []
+  tokenTtlSeconds: 180
+
+runtime:
+  # The one service Core talks to: nginx serves the built UI and hands /api/ to the backend. It
+  # runs without root, so it listens on 8080 inside its container (ADR-10).
+  gateway:
+    service: frontend
+    containerPort: 8080
+  services:
+    - name: backend
+      image: ghcr.io/itec-git/apps/todo-backend
+      tag: 1.3.0
+      port: 8000
+      # No health block here: Forge's Docker probe needs curl or wget, which the Python image has
+      # not got. The image's own HEALTHCHECK asks /api/health with Python instead.
+      env:
+        - name: COBALT_AUDIENCE
+          fromCore: core.audience
+        - name: COBALT_ISSUER
+          fromCore: core.issuer
+        - name: COBALT_TENANT_ID
+          fromCore: core.tenant
+        - name: COBALT_CORE_JWKS_URL
+          fromCore: core.jwks_url
+      mounts:
+        - volume: todo-data
+          path: /data
+    - name: frontend
+      image: ghcr.io/itec-git/apps/todo-frontend
+      tag: 1.3.0
+      port: 8080
+      dependsOn: [backend]
+      # Through the gateway, so it proves nginx and the backend together.
+      health:
+        path: /api/health
+        interval: 10s
+        timeout: 3s
+        retries: 12
+      env:
+        - name: TODO_BACKEND_URL
+          value: http://backend:8000
+  volumes:
+    - name: todo-data
+
+database:
+  owner: none
+
+backend:
+  apiRoot: /api
+  healthCheck: /api/health
+  manifest: /api/manifest
+  openapi: /api/openapi.json
+  permissions:
+    - key: todo:read
+      description: View todo items and predefined lists
+      tab: todo
+      level: read
+      defaultRoles: [helpdesk]
+    - key: todo:write
+      description: Create, edit and delete todo items and predefined lists
+      tab: todo
+      level: all
+
+ui:
+  remote:
+    remoteName: todo_plugin
+    entry: remoteEntry.js
+    mfManifest: mf-manifest.json
+    exposedModule: ./TodoApp
+    mountFunction: mount
+    unmountFunction: unmount
+    # i18n: the contributions and pages take their words from the panel's translations.
+    sdk: [api, i18n]
+    shared: []
+  navigation:
+    # The group's own path makes its title a link to the To do List, as on staging today.
+    - label: todo
+      icon: fa-square-check
+      order: 100
+      path: /plugins/ui/todo
+      children:
+        - label: todo-list
+          path: /plugins/ui/todo
+          permission: todo:read
+          subTab: list
+          order: 101
+        - label: predefined-todo-list
+          path: /plugins/ui/todo/predefined
+          permission: todo:read
+          subTab: predefined
+          order: 102
+  # A contribution carries no permission (ADR-09): whoever reaches the app sees both. The Add
+  # Todo action hides itself from a user who may not add todos, from what GET /api/me answers.
+  contributions:
+    - id: computer-todo-action
+      target: computer.details.header.actions
+      exposedModule: ./ComputerTodoAction
+      order: 100
+    - id: computer-todo-tab
+      target: computer.details.tabs
+      label: todo
+      icon: fa-square-check
+      exposedModule: ./ComputerTodoTab
+      order: 100
