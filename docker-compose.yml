@@ -16,7 +16,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    image: ghcr.io/itec-git/apps/todo-backend:1.3.0
+    image: ghcr.io/itec-git/apps/todo-backend:1.4.0
     container_name: todo-backend
     environment:
       COBALT_AUDIENCE: todo
@@ -47,7 +47,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-    image: ghcr.io/itec-git/apps/todo-frontend:1.3.0
+    image: ghcr.io/itec-git/apps/todo-frontend:1.4.0
     container_name: todo-frontend
     environment:
       TODO_BACKEND_URL: http://todo-backend:8000

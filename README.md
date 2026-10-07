@@ -88,7 +88,7 @@ docker compose up -d --build
 curl -s http://127.0.0.1:8080/api/health
 ```
 
-**Upgrading from 1.3.0 or older?** The backend no longer runs as root, so the
+**Upgrading an older install?** The backend no longer runs as root, so the
 files an older image wrote on the `todo-data` volume must first belong to its
 user (uid 10001). Once, before starting the new image:
 
@@ -113,7 +113,7 @@ app's manifest from the running app and registers it:
 docker compose exec app python scripts/install_application.py --from-service todo
 ```
 
-It prints `Todo List (todo 1.3.0): registered` and a checklist. Installing
+It prints `Todo List (todo 1.4.0): registered` and a checklist. Installing
 again after an upgrade is the same command. From a browser instead, as an
 administrator: `POST /auth/applications/install` with this repository's
 `manifest.json` as the body.
@@ -553,11 +553,11 @@ and `ghcr.io/itec-git/todo/release:<version>`. A server then installs it with
 `forge install`. The images build the same way by hand:
 
 ```bash
-docker build -f backend/Dockerfile -t ghcr.io/itec-git/apps/todo-backend:1.3.0 .
+docker build -f backend/Dockerfile -t ghcr.io/itec-git/apps/todo-backend:1.4.0 .
 ```
 
 ```bash
-docker build -f frontend/Dockerfile -t ghcr.io/itec-git/apps/todo-frontend:1.3.0 .
+docker build -f frontend/Dockerfile -t ghcr.io/itec-git/apps/todo-frontend:1.4.0 .
 ```
 
 Under Forge the app runs as the compose project `forge-todo`, with a volume of

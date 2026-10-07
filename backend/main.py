@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Todo List",
-    version="1.3.0",
+    version="1.4.0",
     description="Todo List app, served behind Cobalt Core's /apps proxy",
     lifespan=lifespan,
     # The schema sits under /api like everything else, where the manifest says.
