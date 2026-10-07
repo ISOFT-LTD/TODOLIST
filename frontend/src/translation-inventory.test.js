@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import {
   INVENTORY_FILE,
   WORKBOOK_FILE,
@@ -53,14 +54,15 @@ const shipped = [
 const read = (file) => readFileSync(file, 'utf8');
 const named = (file) => relative(ROOT, file).replace(/\\/g, '/');
 
-const manifest = JSON.parse(read(join(ROOT, 'manifest.json')));
-const groups = manifest.navigation.filter((entry) => Array.isArray(entry.children));
+// pulsar.yaml: the backend renders the manifest Core reads from its ui block.
+const { ui } = parse(read(join(ROOT, 'pulsar.yaml')));
+const groups = ui.navigation.filter((entry) => Array.isArray(entry.children));
 const pages = groups.flatMap((group) => group.children);
 
 /** The labels the Core draws that are no tab names: group titles and contribution tabs. */
 const drawnLabels = [
   ...groups.map((group) => group.label),
-  ...manifest.contributes.filter((c) => typeof c.label === 'string').map((c) => c.label),
+  ...ui.contributions.filter((c) => typeof c.label === 'string').map((c) => c.label),
 ];
 
 /** Every key the plugin's UI asks for, as written in what it ships. */
@@ -212,7 +214,7 @@ describe('the manifest', () => {
   });
 
   it('declares that the plugin reads sdk.i18n', () => {
-    expect(manifest.frontend.sdk).toContain('i18n');
+    expect(ui.remote.sdk).toContain('i18n');
   });
 
   // Not done, and not to be settled from this repository. In the Core's
