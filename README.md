@@ -14,9 +14,12 @@ Core application is:
   identity Cobalt Core signs
 - a **frontend exposed through Module Federation**, so the ITSM React shell can
   load it at runtime without rebuilding - and a standalone page Core serves today
-- a **`manifest.json`** describing the app to Core, which installs it from there
-- **two Docker images** from this one repository: the frontend image (the UI,
-  and the app's single entry point for Core) and the backend image (the API)
+- a **`pulsar.yaml`**, the Forge manifest: the one file that says what the app
+  is. Forge installs, upgrades and rolls the app back from it, and
+  `manifest.json`, which Core reads at `/api/manifest`, is rendered from it
+- **two Docker images** from this one repository: the frontend image (the
+  gateway: the UI, and the app's single entry point for Core) and the backend
+  image (the API), both built from the repository root
 
 The browser never talks to the Todo service. It talks to Core only:
 
@@ -85,6 +88,14 @@ docker compose up -d --build
 curl -s http://127.0.0.1:8080/api/health
 ```
 
+**Upgrading from 1.3.0 or older?** The backend no longer runs as root, so the
+files an older image wrote on the `todo-data` volume must first belong to its
+user (uid 10001). Once, before starting the new image:
+
+```bash
+docker compose run --rm --no-deps --user 0 --entrypoint chown todo-backend -R 10001:10001 /data
+```
+
 `{"status":"ok"}` means the gateway and the backend are both up. The backend
 refuses to start at all if it cannot load Core's keys - `docker logs
 todo-backend` says why.
@@ -141,8 +152,11 @@ translations to read.
 
 ```
 TODOLIST/
-├── manifest.json            what Core installs from (manifestVersion 2)
-├── docker-compose.yml       both services, private beside Core
+├── pulsar.yaml              the Forge manifest: the one file to edit about the app
+├── manifest.json            what Core installs from (manifestVersion 2): pulsar.yaml
+│                            rendered by scripts/render_manifest.py, never edited by hand
+├── docker-compose.yml       both services, private beside Core, without Forge
+├── .github/workflows/       release.yml (a tag, through Forge), docker-publish.yml
 ├── .env.example             every setting, documented
 ├── cobalt/                  optional saved copy of Core's public keys
 ├── dev/fake_core.py         a local stand-in for Core, for development
@@ -168,6 +182,7 @@ TODOLIST/
     ├── src/testing/         stand-ins for the tests only: never shipped
     ├── translations/        the plugin's key inventory - keys only, no texts:
     │                        the CSV, the workbook built from it, their tools
+    ├── Dockerfile           the gateway image: builds the UI, nginx without root on 8080
     └── nginx.conf.template  serves the UI, hands /api/ to the backend
 ```
 
@@ -186,8 +201,11 @@ python dev/fake_core.py
 ```
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend && pnpm install && pnpm dev
 ```
+
+The frontend uses pnpm 10 (`npm install --global pnpm@10.34.5`), because
+Forge's release workflow installs with `pnpm install --frozen-lockfile`.
 
 Open `http://localhost:5173`. `DEV_ACCESS=read` makes you a read-only user,
 `DEV_USER_ID` and `DEV_USERNAME` change who you are. Stop it with Ctrl+C.
@@ -199,15 +217,30 @@ python -m pytest backend/tests
 ```
 
 ```bash
-cd frontend && npm test
+cd frontend && pnpm test && pnpm build
 ```
+
+One backend test checks that `manifest.json` is exactly `pulsar.yaml` rendered.
+It needs forge-sdk, which is not on a public index yet, and is skipped without
+it. With a Forge checkout beside this one:
+
+```bash
+pip install -e ../forge/packages/forge-sdk
+```
+
+```bash
+python scripts/render_manifest.py
+```
+
+Run the second command after every change to `pulsar.yaml`. Check the bundle
+with `forge validate .` from the same checkout.
 
 After adding or removing a key, update the key inventory
 (`frontend/translations/todo-translation-keys.csv`) and rebuild its workbook;
 a test fails until the code, the inventory and the workbook agree:
 
 ```bash
-cd frontend && npm run translation-keys
+cd frontend && pnpm translation-keys
 ```
 
 ## API
@@ -256,35 +289,34 @@ manifest cannot redirect Core's traffic. The `frontend` section is for the ITSM
 shell.
 
 **`navigation`** uses the grouped contract: one group, labelled by the key
-`to-do`, with two children that both belong to this one plugin:
+`todo` and linking to the To do List, with two children that both belong to
+this one plugin:
 
-| Label | Path | Permission |
-|---|---|---|
-| To do List | `/plugins/ui/todo` | `todo:read` |
-| Predefined to do list | `/plugins/ui/todo/predefined` | `todo:read` |
+| Label | Path | Permission | Sub tab |
+|---|---|---|---|
+| `todo-list` | `/plugins/ui/todo` | `todo:read` | `list` |
+| `predefined-todo-list` | `/plugins/ui/todo/predefined` | `todo:read` | `predefined` |
 
 Both load the same federated module; the sub-path below the plugin's root
-(`''` or `/predefined`) tells it which page to render (see below).
-
-The Core draws every label and translates it. The group's label is written
-as a key, `to-do`, and is in the key inventory. The two page labels are
-**still words, and that is not settled**: in the Core's contract a page's
-`label` is one field with two uses. See
-[Page labels](#page-labels-blocked-by-the-cores-contract).
+(`''` or `/predefined`) tells it which page to render (see below). The Core
+draws every label and translates it; see
+[Page labels](#page-labels-and-the-panels-page-gate).
 
 **`contributes`** puts this plugin into Core pages, at the extension targets
-the Core defines. The Core decides where each renders, filters them by the
-user's permissions, orders, loads, mounts, updates and unmounts them:
+the Core defines. The Core decides where each renders, orders, loads, mounts,
+updates and unmounts them:
 
-| id | Target | Exposed module | Permission | Tab |
-|---|---|---|---|---|
-| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | `todo.todo.all` | - |
-| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | `todo.todo.read` | label `to-do` (a key), `fa-square-check` |
+| id | Target | Exposed module | Tab |
+|---|---|---|---|
+| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | - |
+| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | label `todo` (a key), `fa-square-check` |
 
-Contribution permissions use the Core's own names, `<app>.<tab>.read|all`,
-not the navigation's `todo:read` spelling. The header action adds todos, so
-only users who may add them see it; the tab is shown to readers, without the
-add form when they cannot write. The tab's label is a key: the Core draws
+A contribution carries no permission: the panel shows it to everyone who
+holds the Core's computers tab (Forge ADR-09), and the Forge manifest has no
+field for one. So the header action hides itself: it stays hidden until
+`GET /me` says the user may add todos. The tab shows the list to readers,
+without the add form when they cannot write; a user with no access to the app
+at all sees the API's refusal there. The tab's label is a key: the Core draws
 the tab and translates it.
 
 ### Module Federation remote
@@ -434,11 +466,11 @@ fails on anything that is not a key. It is a text file so that a review can
 read it and a diff can show it.
 [`todo-translation-keys.xlsx`](frontend/translations/todo-translation-keys.xlsx)
 is the same keys in the one column of a sheet, built from the CSV by
-`npm run translation-keys` with no dependency, for whoever prepares the rows
+`pnpm translation-keys` with no dependency, for whoever prepares the rows
 of the translation database. Neither is a catalog. Nothing the plugin ships
 imports them.
 
-`npm test` fails when:
+`pnpm test` fails when:
 
 - a key the code or the manifest asks for is missing from the inventory, or
   the inventory holds a key nothing asks for;
@@ -503,15 +535,41 @@ from users Core lets in. The test suite keeps an open `todo` for it.
 | `TODO_BIND_ADDRESS` / `TODO_PORT` | `127.0.0.1` / `8080` | Compose: where Core reaches the gateway |
 | `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage: todos |
 | `TODO_PREDEFINED_FILE` | `backend/predefined_lists.json` (Docker: `/data/predefined_lists.json`) | Backend storage: predefined lists |
-| `MANIFEST_PATH` | `manifest.json` at the repo root | `/api/manifest` |
-| `VITE_API_TARGET` | `http://127.0.0.1:8001` | `npm run dev` proxy (the fake Core) |
+| `MANIFEST_PATH` | `manifest.json` at the repo root (Docker: `/app/manifest.json`, in the image) | `/api/manifest` |
+| `TODO_BACKEND_URL` | `http://backend:8000` | Gateway: where nginx hands `/api/` |
+| `VITE_API_TARGET` | `http://127.0.0.1:8001` | `pnpm dev` proxy (the fake Core) |
 
-## Published images (GHCR)
+## Releases (Forge)
+
+A release is a tag. Set the version in `pulsar.yaml` (`metadata.version` and
+both services' `tag`), run `python scripts/render_manifest.py`, commit, then
+tag `v<version>`. [`release.yml`](.github/workflows/release.yml) checks the tag
+against `pulsar.yaml` and calls Forge's shared workflow
+(`ISOFT-LTD/forge/.github/workflows/app-release.yml@main`). That builds both
+images from the repository root, scans them, waits for the Release Manager's
+approval in the `production` environment, signs the release record and
+publishes `ghcr.io/itec-git/apps/todo-backend`, `ghcr.io/itec-git/apps/todo-frontend`
+and `ghcr.io/itec-git/todo/release:<version>`. A server then installs it with
+`forge install`. The images build the same way by hand:
+
+```bash
+docker build -f backend/Dockerfile -t ghcr.io/itec-git/apps/todo-backend:1.3.0 .
+```
+
+```bash
+docker build -f frontend/Dockerfile -t ghcr.io/itec-git/apps/todo-frontend:1.3.0 .
+```
+
+Under Forge the app runs as the compose project `forge-todo`, with a volume of
+its own (`forge-todo_todo-data`). Moving a server from `docker-compose.yml` to
+Forge therefore means: copy `todos.json` and `predefined_lists.json` from the
+old volume into the new one, owned by uid 10001; stop this compose project; and
+remove `COBALT_APP_URL_TODO` from Core's environment, because it wins over the
+address `forge install` registers.
 
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
-builds both images and pushes them to GitHub Container Registry on a push to
-`main` (`:main`, `:sha-<short>`) or a `v1.2.3` tag (`:1.2.3`, `:1.2`, `:latest`).
-Pull requests build without pushing. New GHCR packages are private by default.
+still builds both images on every pull request and pushes the `main` branch's
+to GHCR (`:main`, `:sha-<short>`) for testing. It no longer runs on tags.
 
 ## Known limitations
 
