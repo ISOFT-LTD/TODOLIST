@@ -186,7 +186,7 @@ describe('the workbook', () => {
   const rows = [['key'], ...inventory.map((key) => [key])];
 
   it('exists beside the inventory', () => {
-    expect(existsSync(WORKBOOK_FILE), `${WORKBOOK_FILE}: run "npm run translation-keys"`).toBe(true);
+    expect(existsSync(WORKBOOK_FILE), `${WORKBOOK_FILE}: run "pnpm translation-keys"`).toBe(true);
   });
 
   it('holds exactly the inventory: one sheet, one column named key, one row per key', () => {

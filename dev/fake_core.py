@@ -2,7 +2,7 @@
 
     pip install -r backend/requirements.txt -r backend/requirements-dev.txt
     python dev/fake_core.py          # starts the backend on :8000, this on :8001
-    cd frontend && npm run dev       # the UI on :5173; Vite forwards /api to :8001
+    cd frontend && pnpm dev          # the UI on :5173; Vite forwards /api to :8001
 
 Per request it does what Core's /apps proxy does: mints a fresh, short-lived
 delegated token for this app - with the same claim builder Core uses - and
@@ -95,7 +95,7 @@ def main():
     )
     print(f"\n  fake Core on http://127.0.0.1:{PORT}  ->  backend on :{BACKEND_PORT}")
     print(f"  you are user {USER_ID} ({USERNAME}), access: {ACCESS}, tenant: {TENANT}")
-    print("  run the UI:  cd frontend && npm run dev\n")
+    print("  run the UI:  cd frontend && pnpm dev\n")
     try:
         uvicorn.run(app, host="127.0.0.1", port=PORT)
     finally:

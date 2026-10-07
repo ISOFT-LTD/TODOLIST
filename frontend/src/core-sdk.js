@@ -8,7 +8,7 @@
  * forwards the request. Nothing here sees, stores or sends a token - there is
  * none to handle.
  *
- * The same relative URL works under `npm run dev`, where Vite forwards /api to
+ * The same relative URL works under `pnpm dev`, where Vite forwards /api to
  * a local stand-in for Core (dev/fake_core.py).
  *
  * Contract, the same one the ITSM shell's SDK must honour:
