@@ -19,7 +19,7 @@ COPY frontend/ ./
 RUN pnpm build
 
 # nginx without root: the image runs as its own user and listens on 8080 (ADR-10).
-FROM nginxinc/nginx-unprivileged:1.28-alpine
+FROM nginxinc/nginx-unprivileged:1.30-alpine
 # The image fills in ${TODO_BACKEND_URL} from the environment when the container starts;
 # pulsar.yaml sets it to http://backend:8000.
 COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
