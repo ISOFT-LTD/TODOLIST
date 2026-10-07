@@ -16,29 +16,34 @@ Configuration, from the environment:
     COBALT_TENANT_ID       Core's CORE_TENANT_ID; unset accepts any tenant
     COBALT_CORE_JWKS_URL   Core's GET /auth/.well-known/jwks.json
     COBALT_CORE_JWKS_FILE  a saved copy of that document, used instead of the URL
-    COBALT_PERMISSION_TAB  the Core tab this app's permissions hang off  [todo]
 
 One key source is required. Without either the service refuses to start: a
 service that cannot verify Core's identity must not serve anyone.
 
-PERMISSIONS. Core names them ``<app_key>.<tab_key>.<action>``: a user with Read
-on the ``todo`` tab gets ``todo.todo.read``; with All, also ``todo.todo.all``.
-Reading needs the first, changing anything needs the second.
+ACTIONS. Core puts the action keys granted to the signed-in user in the
+delegated token's ``actions`` claim. Every data route checks its own action.
 """
 
 import json
 import os
 
 from cobalt_identity import JwksUrl, ReplayCache, StaticKeys, TokenVerifier
-from cobalt_identity.fastapi_deps import require_identity, require_permission
+from fastapi import Depends, HTTPException, status
+
+from cobalt_identity import DelegatedIdentity
+from cobalt_identity.fastapi_deps import require_identity
 
 AUDIENCE = os.getenv("COBALT_AUDIENCE", "todo")
 ISSUER = os.getenv("COBALT_ISSUER", "cobalt-core")
 TENANT = os.getenv("COBALT_TENANT_ID") or None
-PERMISSION_TAB = os.getenv("COBALT_PERMISSION_TAB", "todo")
-
-CAN_READ = f"{AUDIENCE}.{PERMISSION_TAB}.read"
-CAN_WRITE = f"{AUDIENCE}.{PERMISSION_TAB}.all"
+READ_TODO = "todo.read_todo"
+ADD_TODO = "todo.add_todo"
+UPDATE_TODO = "todo.update_todo"
+DELETE_TODO = "todo.delete_todo"
+READ_PREDEFINED_LIST = "todo.read_predefined_list"
+ADD_PREDEFINED_LIST = "todo.add_predefined_list"
+UPDATE_PREDEFINED_LIST = "todo.update_predefined_list"
+DELETE_PREDEFINED_LIST = "todo.delete_predefined_list"
 
 
 def _key_source():
@@ -71,11 +76,33 @@ verifier = TokenVerifier(
     replay_store=ReplayCache(),
 )
 
-# Dependencies. Each yields the verified DelegatedIdentity; the token is
-# verified once per request however many of them a route uses.
+# Dependencies. The token is verified once per request however many dependencies
+# use it, because require_identity caches the result on request.state.
 identity = require_identity(verifier)
-can_read = require_permission(verifier, CAN_READ)
-can_write = require_permission(verifier, CAN_WRITE)
+
+
+def get_delegated_principal(
+    principal: DelegatedIdentity = Depends(identity),
+) -> DelegatedIdentity:
+    """Return the identity and actions verified from Core's delegated JWT."""
+    return principal
+
+
+def require_delegated_action(action_key: str):
+    """Build a FastAPI dependency that requires one delegated action."""
+
+    def checker(
+        principal: DelegatedIdentity = Depends(get_delegated_principal),
+    ) -> DelegatedIdentity:
+        if not principal.has_action(action_key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Action not delegated",
+            )
+        return principal
+
+    checker.__name__ = f"require_{action_key.replace('.', '_')}"
+    return checker
 
 
 def owner_of(who) -> tuple:

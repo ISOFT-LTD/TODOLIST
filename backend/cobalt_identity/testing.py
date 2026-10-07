@@ -45,6 +45,7 @@ class LocalIssuer:
         audience: str,
         *,
         permissions: Iterable[str] = (),
+        actions: Iterable[str] = (),
         roles: Iterable[str] = (),
         username: Optional[str] = None,
         session_id: Optional[str] = "sid_test",
@@ -65,6 +66,7 @@ class LocalIssuer:
             session_id=session_id,
             roles=roles,
             permissions=permissions,
+            actions=actions,
         )
         claims.update(overrides)
         return claims

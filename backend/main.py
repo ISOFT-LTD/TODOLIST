@@ -8,21 +8,21 @@ THE BROWSER NEVER CALLS THIS SERVICE. It talks to Cobalt Core only, at
 the user may reach this app at all, mints a short-lived JWT for this audience,
 and forwards the request here with ``Authorization: Bearer <jwt>``. This
 service verifies that token on every call (auth.py) and decides what the user
-may do from the permissions inside it. It holds no session, no cookie and no
+may do from the actions inside it. It holds no session, no cookie and no
 password, and never touches Core's database.
 
 Which is why there is no CORS middleware: no browser origin is ever allowed to
 call this service directly.
 
-    GET    /api/todos          list this user's todos          todo.todo.read
+    GET    /api/todos          list this user's todos          todo.read_todo
                                (?computer_id=N: only that computer's)
-    POST   /api/todos          create                          todo.todo.all
-    PUT    /api/todos/{id}     update title and/or done        todo.todo.all
-    DELETE /api/todos/{id}     delete                          todo.todo.all
-    GET    /api/predefined-lists        this user's predefined lists    todo.todo.read
-    POST   /api/predefined-lists        create                          todo.todo.all
-    PUT    /api/predefined-lists/{id}   update name and/or items        todo.todo.all
-    DELETE /api/predefined-lists/{id}   delete                          todo.todo.all
+    POST   /api/todos          create                          todo.add_todo
+    PUT    /api/todos/{id}     update title and/or done        todo.update_todo
+    DELETE /api/todos/{id}     delete                          todo.delete_todo
+    GET    /api/predefined-lists        this user's predefined lists    todo.read_predefined_list
+    POST   /api/predefined-lists        create                          todo.add_predefined_list
+    PUT    /api/predefined-lists/{id}   update name and/or items        todo.update_predefined_list
+    DELETE /api/predefined-lists/{id}   delete                          todo.delete_predefined_list
     GET    /api/me             who Core says is calling        any valid token
     GET    /api/health         liveness                        open
     GET    /api/manifest       this app's manifest, for Core   open
@@ -36,7 +36,19 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Response, status
 
 import models
-from auth import CAN_READ, CAN_WRITE, can_read, can_write, identity, owner_of
+from auth import (
+    ADD_PREDEFINED_LIST,
+    ADD_TODO,
+    DELETE_PREDEFINED_LIST,
+    DELETE_TODO,
+    READ_PREDEFINED_LIST,
+    READ_TODO,
+    UPDATE_PREDEFINED_LIST,
+    UPDATE_TODO,
+    get_delegated_principal,
+    owner_of,
+    require_delegated_action,
+)
 from database import init_storage
 from schemas import (
     PredefinedListCreate,
@@ -80,19 +92,26 @@ todos_router = APIRouter(prefix="/api/todos", tags=["Todos"])
 
 
 @todos_router.get("", response_model=List[TodoOut])
-def list_todos(computer_id: Optional[int] = Query(None, ge=1), who=Depends(can_read)):
+def list_todos(
+    computer_id: Optional[int] = Query(None, ge=1),
+    who=Depends(require_delegated_action(READ_TODO)),
+):
     """This user's todos, newest first; only one computer's with ``computer_id``."""
     return models.list_todos(*owner_of(who), computer_id=computer_id)
 
 
 @todos_router.post("", response_model=TodoOut, status_code=status.HTTP_201_CREATED)
-def create_todo(todo: TodoCreate, who=Depends(can_write)):
+def create_todo(todo: TodoCreate, who=Depends(require_delegated_action(ADD_TODO))):
     """Create a new todo for this user, about a computer when it names one."""
     return models.create_todo(*owner_of(who), todo.title, computer_id=todo.computer_id)
 
 
 @todos_router.put("/{todo_id}", response_model=TodoOut)
-def update_todo(todo_id: int, todo: TodoUpdate, who=Depends(can_write)):
+def update_todo(
+    todo_id: int,
+    todo: TodoUpdate,
+    who=Depends(require_delegated_action(UPDATE_TODO)),
+):
     """Update a todo's title, its completion state, or both."""
     updated = models.update_todo(*owner_of(who), todo_id, todo.title, todo.done)
     if not updated:
@@ -101,7 +120,7 @@ def update_todo(todo_id: int, todo: TodoUpdate, who=Depends(can_write)):
 
 
 @todos_router.delete("/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_todo(todo_id: int, who=Depends(can_write)):
+def delete_todo(todo_id: int, who=Depends(require_delegated_action(DELETE_TODO))):
     """Delete a todo."""
     if not models.delete_todo(*owner_of(who), todo_id):
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -112,26 +131,35 @@ app.include_router(todos_router)
 
 # ---------------------------------------------------------------------------
 # Predefined lists - reusable templates, kept with the same identity and
-# permissions as todos. Creating todos from one is a later feature.
+# actions as todos. Creating todos from one is a later feature.
 # ---------------------------------------------------------------------------
 
 predefined_router = APIRouter(prefix="/api/predefined-lists", tags=["Predefined lists"])
 
 
 @predefined_router.get("", response_model=List[PredefinedListOut])
-def list_predefined_lists(who=Depends(can_read)):
+def list_predefined_lists(
+    who=Depends(require_delegated_action(READ_PREDEFINED_LIST)),
+):
     """This user's predefined lists, newest first."""
     return models.list_predefined_lists(*owner_of(who))
 
 
 @predefined_router.post("", response_model=PredefinedListOut, status_code=status.HTTP_201_CREATED)
-def create_predefined_list(body: PredefinedListCreate, who=Depends(can_write)):
+def create_predefined_list(
+    body: PredefinedListCreate,
+    who=Depends(require_delegated_action(ADD_PREDEFINED_LIST)),
+):
     """Create a new predefined list for this user."""
     return models.create_predefined_list(*owner_of(who), body.name, body.items)
 
 
 @predefined_router.put("/{list_id}", response_model=PredefinedListOut)
-def update_predefined_list(list_id: int, body: PredefinedListUpdate, who=Depends(can_write)):
+def update_predefined_list(
+    list_id: int,
+    body: PredefinedListUpdate,
+    who=Depends(require_delegated_action(UPDATE_PREDEFINED_LIST)),
+):
     """Update a predefined list's name, its items, or both."""
     updated = models.update_predefined_list(*owner_of(who), list_id, body.name, body.items)
     if not updated:
@@ -140,7 +168,10 @@ def update_predefined_list(list_id: int, body: PredefinedListUpdate, who=Depends
 
 
 @predefined_router.delete("/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_predefined_list(list_id: int, who=Depends(can_write)):
+def delete_predefined_list(
+    list_id: int,
+    who=Depends(require_delegated_action(DELETE_PREDEFINED_LIST)),
+):
     """Delete a predefined list."""
     if not models.delete_predefined_list(*owner_of(who), list_id):
         raise HTTPException(status_code=404, detail="Predefined list not found")
@@ -153,20 +184,25 @@ app.include_router(predefined_router)
 # Identity, health, manifest
 # ---------------------------------------------------------------------------
 
-
 @app.get("/api/me", tags=["Identity"])
-def whoami(who=Depends(identity)):
-    """Who Core says is calling, and what they may do here.
-
-    The UI uses ``can_write`` to hide the controls a read-only user cannot
-    use, rather than letting them click and fail.
-    """
+def whoami(who=Depends(get_delegated_principal)):
+    """Who Core says is calling, including the delegated action keys."""
+    write_actions = {
+        "todo.add_todo",
+        "todo.update_todo",
+        "todo.delete_todo",
+        "todo.add_predefined_list",
+        "todo.update_predefined_list",
+        "todo.delete_predefined_list",
+    }
     return {
         "subject": who.subject,
         "username": who.username,
         "tenant_id": who.tenant_id,
-        "can_read": who.has_permission(CAN_READ),
-        "can_write": who.has_permission(CAN_WRITE),
+        "actions": sorted(who.actions),
+        # Compatibility for the current UI while it adopts granular actions.
+        "can_read": bool({"todo.read_todo", "todo.read_predefined_list"} & who.actions),
+        "can_write": bool(write_actions & who.actions),
     }
 
 

@@ -10,7 +10,7 @@ Mirrors AUTHENTICATION_MICROSERVICE_ANALYSIS.md section 4.2::
     preferred_username  display/context only, never a join key
     tenant_id           the deployment's tenant identifier
     roles               role names Core chose to disclose to THIS audience
-    permissions         "<app_key>.<resource>.<action>" strings for THIS audience
+    actions             action keys delegated to the user for THIS audience
     sid                 the browser session's non-secret public id
     authz_ver           a fingerprint of the grants the claims were built from
     iat / nbf / exp     seconds since the epoch; exp - iat is a few minutes
@@ -59,6 +59,7 @@ class DelegatedIdentity:
     authz_version: Optional[str] = None
     roles: Tuple[str, ...] = ()
     permissions: FrozenSet[str] = frozenset()
+    actions: FrozenSet[str] = frozenset()
     issued_at: int = 0
     expires_at: int = 0
     not_before: Optional[int] = None
@@ -75,6 +76,9 @@ class DelegatedIdentity:
 
     def has_role(self, name: str) -> bool:
         return name in self.roles
+
+    def has_action(self, name: str) -> bool:
+        return name in self.actions
 
 
 def _require_text(payload: Mapping[str, Any], name: str) -> str:
@@ -184,6 +188,7 @@ def validate_claims(
         authz_version=_optional_text(payload, "authz_ver"),
         roles=_string_list(payload, "roles"),
         permissions=frozenset(_string_list(payload, "permissions")),
+        actions=frozenset(_string_list(payload, "actions")),
         issued_at=issued_at,
         expires_at=expires_at,
         not_before=not_before,
@@ -205,6 +210,7 @@ def build_claims(
     session_id: Optional[str] = None,
     roles: Iterable[str] = (),
     permissions: Iterable[str] = (),
+    actions: Iterable[str] = (),
     authz_version: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The issuer-side twin of validate_claims: a payload the contract accepts.
@@ -223,6 +229,7 @@ def build_claims(
         "exp": issued_at + int(lifetime_seconds),
         "roles": sorted(set(roles)),
         "permissions": sorted(set(permissions)),
+        "actions": sorted(set(actions)),
     }
     if username is not None:
         claims["preferred_username"] = username
