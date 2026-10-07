@@ -14,18 +14,21 @@
  * language redraws them in place: an open dialog stays open, with what was
  * typed in it.
  *
- * The manifest asks the Core to show it only to users who may add todos
- * (todo.todo.all); the API refuses anyone else regardless.
+ * Only a user who may add todos sees it. The panel shows a contribution to
+ * everyone who holds the Core's computers tab and reads no permission on it
+ * (ADR-09), so the button hides itself: it stays hidden until GET /me says
+ * the user may write, and stays hidden when /me fails. The API refuses
+ * anyone else regardless.
  */
 
 import { createPluginTranslation } from '../plugin-translation.js';
 import { todosChanged } from '../todo-events.js';
-import { appendHtml } from '../pages/shared.js';
+import { appendHtml, whoIsCalling } from '../pages/shared.js';
 import { createContribution, notify } from './contribution.js';
 import styles from './computer-todo-action.css?inline';
 
 const TEMPLATE = `
-  <button type="button" class="open" data-i18n-title="todo.add-computer-todo-tooltip">
+  <button type="button" class="open" hidden data-i18n-title="todo.add-computer-todo-tooltip">
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
       <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
     </svg>
@@ -61,6 +64,10 @@ function renderAction(root, { computerId, sdk }) {
   const save = root.querySelector('.save');
 
   let destroyed = false;
+
+  whoIsCalling(sdk.api).then((me) => {
+    if (!destroyed && me?.canWrite) open.hidden = false;
+  });
 
   /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
