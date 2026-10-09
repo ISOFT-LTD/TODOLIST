@@ -80,6 +80,58 @@
     }
   ],
 
+  "actions": [
+    {
+      "key": "todo.view",
+      "name": "View Todo Items",
+      "description": "View personal todo items",
+      "module": "items"
+    },
+    {
+      "key": "todo.create",
+      "name": "Create Todo Item",
+      "description": "Create a new todo item",
+      "module": "items"
+    },
+    {
+      "key": "todo.update",
+      "name": "Update Todo Item",
+      "description": "Edit an existing todo item",
+      "module": "items"
+    },
+    {
+      "key": "todo.delete",
+      "name": "Delete Todo Item",
+      "description": "Delete an existing todo item",
+      "module": "items"
+    },
+
+    {
+      "key": "predefined.view",
+      "name": "View Predefined Todo Lists",
+      "description": "View reusable predefined todo lists",
+      "module": "predefined"
+    },
+    {
+      "key": "predefined.create",
+      "name": "Create Predefined Todo List",
+      "description": "Create a reusable predefined todo list",
+      "module": "predefined"
+    },
+    {
+      "key": "predefined.update",
+      "name": "Update Predefined Todo List",
+      "description": "Edit a predefined todo list",
+      "module": "predefined"
+    },
+    {
+      "key": "predefined.delete",
+      "name": "Delete Predefined Todo List",
+      "description": "Delete a predefined todo list",
+      "module": "predefined"
+    }
+  ],
+
   "backend": {
     "apiRoot": "/api",
     "healthCheck": "/api/health",

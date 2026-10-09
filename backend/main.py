@@ -14,15 +14,15 @@ password, and never touches Core's database.
 Which is why there is no CORS middleware: no browser origin is ever allowed to
 call this service directly.
 
-    GET    /api/todos          list this user's todos          todo.read_todo
+    GET    /api/todos          list this user's todos          todo.view
                                (?computer_id=N: only that computer's)
-    POST   /api/todos          create                          todo.add_todo
-    PUT    /api/todos/{id}     update title and/or done        todo.update_todo
-    DELETE /api/todos/{id}     delete                          todo.delete_todo
-    GET    /api/predefined-lists        this user's predefined lists    todo.read_predefined_list
-    POST   /api/predefined-lists        create                          todo.add_predefined_list
-    PUT    /api/predefined-lists/{id}   update name and/or items        todo.update_predefined_list
-    DELETE /api/predefined-lists/{id}   delete                          todo.delete_predefined_list
+    POST   /api/todos          create                          todo.create
+    PUT    /api/todos/{id}     update title and/or done        todo.update
+    DELETE /api/todos/{id}     delete                          todo.delete
+    GET    /api/predefined-lists        this user's lists      predefined.view
+    POST   /api/predefined-lists        create                  predefined.create
+    PUT    /api/predefined-lists/{id}   update name/items       predefined.update
+    DELETE /api/predefined-lists/{id}   delete                  predefined.delete
     GET    /api/me             who Core says is calling        any valid token
     GET    /api/health         liveness                        open
     GET    /api/manifest       this app's manifest, for Core   open
@@ -188,21 +188,27 @@ app.include_router(predefined_router)
 def whoami(who=Depends(get_delegated_principal)):
     """Who Core says is calling, including the delegated action keys."""
     write_actions = {
-        "todo.add_todo",
-        "todo.update_todo",
-        "todo.delete_todo",
-        "todo.add_predefined_list",
-        "todo.update_predefined_list",
-        "todo.delete_predefined_list",
+        "todo.create",
+        "todo.update",
+        "todo.delete",
+        "predefined.create",
+        "predefined.update",
+        "predefined.delete",
+    }
+    allowed_actions = {
+        action
+        for action, decision in who.action_permissions.items()
+        if decision == "ALLOW"
     }
     return {
         "subject": who.subject,
         "username": who.username,
         "tenant_id": who.tenant_id,
-        "actions": sorted(who.actions),
+        "actions": sorted(allowed_actions),
+        "action_permissions": dict(who.action_permissions),
         # Compatibility for the current UI while it adopts granular actions.
-        "can_read": bool({"todo.read_todo", "todo.read_predefined_list"} & who.actions),
-        "can_write": bool(write_actions & who.actions),
+        "can_read": bool({"todo.view", "predefined.view"} & allowed_actions),
+        "can_write": bool(write_actions & allowed_actions),
     }
 
 

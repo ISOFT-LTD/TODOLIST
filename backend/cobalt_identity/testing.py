@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import secrets
 import time
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 from . import jws
 from .claims import build_claims
@@ -46,6 +46,7 @@ class LocalIssuer:
         *,
         permissions: Iterable[str] = (),
         actions: Iterable[str] = (),
+        action_permissions: Optional[Mapping[str, str]] = None,
         roles: Iterable[str] = (),
         username: Optional[str] = None,
         session_id: Optional[str] = "sid_test",
@@ -67,6 +68,7 @@ class LocalIssuer:
             roles=roles,
             permissions=permissions,
             actions=actions,
+            action_permissions=action_permissions,
         )
         claims.update(overrides)
         return claims

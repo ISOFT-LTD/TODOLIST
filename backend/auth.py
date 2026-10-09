@@ -20,8 +20,8 @@ Configuration, from the environment:
 One key source is required. Without either the service refuses to start: a
 service that cannot verify Core's identity must not serve anyone.
 
-ACTIONS. Core puts the action keys granted to the signed-in user in the
-delegated token's ``actions`` claim. Every data route checks its own action.
+ACTIONS. Core puts its decision for each action in the delegated token's
+``action_permissions`` object. Every data route checks its own action name.
 """
 
 import json
@@ -36,14 +36,16 @@ from cobalt_identity.fastapi_deps import require_identity
 AUDIENCE = os.getenv("COBALT_AUDIENCE", "todo")
 ISSUER = os.getenv("COBALT_ISSUER", "cobalt-core")
 TENANT = os.getenv("COBALT_TENANT_ID") or None
-READ_TODO = "todo.read_todo"
-ADD_TODO = "todo.add_todo"
-UPDATE_TODO = "todo.update_todo"
-DELETE_TODO = "todo.delete_todo"
-READ_PREDEFINED_LIST = "todo.read_predefined_list"
-ADD_PREDEFINED_LIST = "todo.add_predefined_list"
-UPDATE_PREDEFINED_LIST = "todo.update_predefined_list"
-DELETE_PREDEFINED_LIST = "todo.delete_predefined_list"
+READ_TODO = "todo.view"
+ADD_TODO = "todo.create"
+UPDATE_TODO = "todo.update"
+DELETE_TODO = "todo.delete"
+READ_PREDEFINED_LIST = "predefined.view"
+ADD_PREDEFINED_LIST = "predefined.create"
+UPDATE_PREDEFINED_LIST = "predefined.update"
+DELETE_PREDEFINED_LIST = "predefined.delete"
+APPROVAL_REQUIRED_HEADER = "X-Cobalt-Approval-Required"
+APPROVAL_ACTION_HEADER = "X-Cobalt-Approval-Action"
 
 
 def _key_source():
@@ -89,15 +91,36 @@ def get_delegated_principal(
 
 
 def require_delegated_action(action_key: str):
-    """Build a FastAPI dependency that requires one delegated action."""
+    """Require Core's explicit ALLOW decision for one route action."""
 
     def checker(
         principal: DelegatedIdentity = Depends(get_delegated_principal),
     ) -> DelegatedIdentity:
-        if not principal.has_action(action_key):
+        decision = principal.action_permission(action_key)
+        if decision == "REQUIRE_APPROVAL":
+            # This is an internal challenge to Core's /apps proxy, not the
+            # final browser response. Core validates it, creates the approval
+            # record from the original request, and adds approval_request_id.
+            raise HTTPException(
+                status_code=status.HTTP_202_ACCEPTED,
+                detail={
+                    "message": "Approval required",
+                    "action_key": action_key,
+                    "status": decision,
+                },
+                headers={
+                    APPROVAL_REQUIRED_HEADER: "true",
+                    APPROVAL_ACTION_HEADER: action_key,
+                },
+            )
+        if decision != "ALLOW":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Action not delegated",
+                detail={
+                    "message": "Action denied",
+                    "action_key": action_key,
+                    "status": "DENY",
+                },
             )
         return principal
 

@@ -20,7 +20,16 @@ export function appendHtml(root, html) {
 export async function whoIsCalling(api) {
   try {
     const me = await api.get('/me');
-    return { canWrite: Boolean(me?.can_write), name: me?.username || '' };
+    return {
+      actions: Array.isArray(me?.actions) ? me.actions : null,
+      actionPermissions: (
+        me?.action_permissions
+        && typeof me.action_permissions === 'object'
+        && !Array.isArray(me.action_permissions)
+      ) ? { ...me.action_permissions } : null,
+      canWrite: Boolean(me?.can_write),
+      name: me?.username || '',
+    };
   } catch {
     return null;
   }
@@ -30,8 +39,8 @@ export async function whoIsCalling(api) {
  * The "Signed in as ..." line, or '' when there is nothing to say. `t` gives
  * the words of the moment; the name is data and stays as it is.
  */
-export function describeUser(me, t) {
+export function describeUser(me, t, canWrite = me?.canWrite) {
   if (!me?.name) return '';
   const signedIn = `${t('todo.signed-in-as')} ${me.name}`;
-  return me.canWrite ? signedIn : `${signedIn} - ${t('todo.read-only-suffix')}`;
+  return canWrite ? signedIn : `${signedIn} - ${t('todo.read-only-suffix')}`;
 }

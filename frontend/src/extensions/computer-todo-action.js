@@ -15,17 +15,19 @@
  * typed in it.
  *
  * The manifest asks the Core to show it only to users who may add todos
- * (todo.todo.all); the API refuses anyone else regardless.
+ * (todo.create); the API refuses anyone else regardless.
  */
 
 import { createPluginTranslation } from '../plugin-translation.js';
 import { todosChanged } from '../todo-events.js';
+import { ACTIONS, hasAction } from '../actions.js';
+import { hidePendingApproval, showPendingApproval } from '../approval-card.js';
 import { appendHtml } from '../pages/shared.js';
 import { createContribution, notify } from './contribution.js';
 import styles from './computer-todo-action.css?inline';
 
 const TEMPLATE = `
-  <button type="button" class="open" data-i18n-title="todo.add-computer-todo-tooltip">
+  <button type="button" class="open" data-i18n-title="todo.add-computer-todo-tooltip" hidden>
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
       <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
     </svg>
@@ -36,6 +38,14 @@ const TEMPLATE = `
       <h2 id="todo-dialog-title" data-i18n="todo.add-computer-todo-title"></h2>
       <input type="text" class="new-title" data-i18n-placeholder="todo.new-todo-placeholder" autocomplete="off" maxlength="255" required>
       <p class="error" role="alert" hidden></p>
+      <section class="approval-card" role="status" aria-live="polite" hidden>
+        <strong class="approval-message"></strong>
+        <div class="approval-meta">
+          <span class="approval-id"></span>
+          <span class="approval-action"></span>
+          <span class="approval-status"></span>
+        </div>
+      </section>
       <div class="actions">
         <button type="button" class="cancel" data-i18n="todo.cancel"></button>
         <button type="submit" class="primary save" data-i18n="todo.add"></button>
@@ -57,10 +67,23 @@ function renderAction(root, { computerId, sdk }) {
   const form = root.querySelector('form');
   const input = root.querySelector('.new-title');
   const errorBox = root.querySelector('.error');
+  const approvalCard = root.querySelector('.approval-card');
   const cancel = root.querySelector('.cancel');
   const save = root.querySelector('.save');
 
   let destroyed = false;
+
+  sdk.api.get('/me').then((me) => {
+    if (!destroyed) open.hidden = !hasAction({
+      actions: Array.isArray(me?.actions) ? me.actions : null,
+      actionPermissions: (
+        me?.action_permissions
+        && typeof me.action_permissions === 'object'
+        && !Array.isArray(me.action_permissions)
+      ) ? { ...me.action_permissions } : null,
+      canWrite: Boolean(me?.can_write),
+    }, ACTIONS.TODO_CREATE);
+  }).catch(() => {});
 
   /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
@@ -70,6 +93,7 @@ function renderAction(root, { computerId, sdk }) {
 
   function show() {
     showError('');
+    hidePendingApproval(approvalCard);
     input.value = '';
     // showModal() puts the dialog in the top layer; an environment without it
     // still gets an open dialog.
@@ -93,9 +117,11 @@ function renderAction(root, { computerId, sdk }) {
 
     save.disabled = true;
     showError('');
+    hidePendingApproval(approvalCard);
     try {
-      await sdk.api.post('/todos', { title, computer_id: computerId });
+      const response = await sdk.api.post('/todos', { title, computer_id: computerId });
       if (destroyed) return;
+      if (showPendingApproval(approvalCard, response)) return;
       hide();
       todosChanged({ computerId });
       notify(sdk, 'success', texts.t('todo.computer-todo-added'));

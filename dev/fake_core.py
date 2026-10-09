@@ -19,7 +19,7 @@ Who you are, from the environment:
 
     DEV_USER_ID      the user id (the token's sub)            [1]
     DEV_USERNAME     the display name                         [developer]
-    DEV_ACCESS       write (Read + All on the tab) or read    [write]
+    DEV_ACCESS       write (all actions) or read-only actions [write]
 """
 
 import json
@@ -39,7 +39,6 @@ from fastapi import FastAPI, Request, Response  # noqa: E402
 from cobalt_identity.testing import LocalIssuer  # noqa: E402
 
 APP_KEY = os.getenv("COBALT_AUDIENCE", "todo")
-TAB = os.getenv("COBALT_PERMISSION_TAB", "todo")
 TENANT = os.getenv("COBALT_TENANT_ID", "dev")
 USER_ID = os.getenv("DEV_USER_ID", "1")
 USERNAME = os.getenv("DEV_USERNAME", "developer")
@@ -53,14 +52,23 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 backend = httpx.AsyncClient(base_url=f"http://127.0.0.1:{BACKEND_PORT}", timeout=30)
 
 
-def _permissions():
-    read = f"{APP_KEY}.{TAB}.read"
-    return [read, f"{APP_KEY}.{TAB}.all"] if ACCESS == "write" else [read]
+def _actions():
+    read = ["todo.read_todo", "todo.read_predefined_list"]
+    if ACCESS != "write":
+        return read
+    return read + [
+        "todo.add_todo",
+        "todo.update_todo",
+        "todo.delete_todo",
+        "todo.add_predefined_list",
+        "todo.update_predefined_list",
+        "todo.delete_predefined_list",
+    ]
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def forward(path: str, request: Request):
-    token = issuer.mint(USER_ID, APP_KEY, permissions=_permissions(), username=USERNAME)
+    token = issuer.mint(USER_ID, APP_KEY, actions=_actions(), username=USERNAME)
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": request.headers.get("accept", "application/json"),

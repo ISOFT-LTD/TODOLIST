@@ -1,0 +1,78 @@
+/* Rendered inside a shadow root: nothing here leaks into the host shell, and
+   the shell's global CSS (Bootstrap, Metronic) does not leak in. */
+
+:host {
+  display: block;
+  font: 16px/1.5 system-ui, sans-serif;
+  color: #1a1a1a;
+}
+
+* { box-sizing: border-box; }
+
+.todo { max-width: 480px; margin: 0 auto; padding: 24px 0; }
+h1 { font-size: 24px; margin: 0 0 20px; }
+
+form { display: flex; gap: 8px; margin-bottom: 20px; }
+
+input[type=text] {
+  flex: 1; padding: 10px 12px; font: inherit; color: inherit;
+  border: 1px solid #d0d3d8; border-radius: 6px; background: #fff;
+}
+input[type=text]:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
+
+button {
+  padding: 10px 14px; font: inherit; color: inherit; cursor: pointer;
+  border: 1px solid #d0d3d8; border-radius: 6px; background: #fff;
+}
+button:hover { background: #eceef1; }
+button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+button.primary:hover { background: #1d4ed8; }
+
+ul { list-style: none; margin: 0; padding: 0; }
+li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+  background: #fff; border: 1px solid #e4e6ea; border-radius: 6px;
+}
+li .title { flex: 1; word-break: break-word; }
+li.done .title { text-decoration: line-through; color: #9096a0; }
+li input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; }
+li input[type=text] { padding: 4px 8px; }
+
+.empty { color: #9096a0; text-align: center; padding: 24px 0; }
+.error { color: #b42318; text-align: center; padding: 12px 0; }
+[hidden] { display: none !important; }
+.who { margin: -12px 0 20px; font-size: 13px; color: #6b7280; }
+
+/* Predefined lists: the add form stacks name over items, and each list is a
+   card with its name and buttons on one row and the items underneath. */
+textarea {
+  width: 100%; padding: 10px 12px; font: inherit; color: inherit; resize: vertical;
+  border: 1px solid #d0d3d8; border-radius: 6px; background: #fff;
+}
+textarea:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
+.template-form { flex-direction: column; align-items: stretch; }
+.template-form .new-name { flex: none; }
+.template-form button { align-self: flex-end; }
+
+li.template { flex-direction: column; align-items: stretch; }
+li.template .head { display: flex; align-items: center; gap: 10px; }
+li.template .head .title { font-weight: 600; }
+li.template .items { margin: 8px 0 0; padding-left: 28px; color: #4b5563; }
+li.template .items li {
+  display: list-item; padding: 2px 0; margin: 0; border: 0; background: none;
+}
+li.template .edit-name { width: 100%; }
+li.template .edit-items { margin-top: 8px; }
+li.template .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+/* A todo about a Core computer, as the standalone list shows it. */
+.tag {
+  flex: none; padding: 1px 8px; font-size: 12px; color: #1d4ed8;
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px;
+}
+
+/* The list inside a Core page (the Computer Details tab): the Core's panel
+   sets the width and the tab names it, so no centring and no heading. */
+.todo.embedded { max-width: none; margin: 0; padding: 16px 20px; font-size: 14px; }
+.todo.embedded .who { margin: 0 0 12px; }

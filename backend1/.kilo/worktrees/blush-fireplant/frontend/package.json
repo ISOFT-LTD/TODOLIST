@@ -1,0 +1,19 @@
+{
+  "name": "todo-plugin-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "translation-keys": "node translations/build-workbook.js"
+  },
+  "devDependencies": {
+    "@module-federation/vite": "^1.22.0",
+    "jsdom": "^26.1.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.2.7"
+  }
+}

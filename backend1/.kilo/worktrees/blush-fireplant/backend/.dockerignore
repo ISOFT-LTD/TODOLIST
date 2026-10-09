@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+.venv
+venv
+.env
+.env.*
+todos.json
+*.tmp
+*.log
+Dockerfile
+.dockerignore
+tests
+requirements-dev.txt
+.pytest_cache

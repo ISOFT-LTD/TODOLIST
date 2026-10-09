@@ -26,7 +26,7 @@ Browser, logged in to Cobalt (HttpOnly session cookie)
         ▼
 Cobalt Core
    • validates the session, checks the user may reach "todo" at all
-   • mints a 3-minute JWT for audience "todo" with the user's permissions
+   • mints a 3-minute JWT for audience "todo" with the user's actions
         │  Authorization: Bearer <jwt>, server to server
         ▼
 todo-frontend (nginx, 127.0.0.1:8080)  ── /api/ ──►  todo-backend (FastAPI)
@@ -42,7 +42,7 @@ Core's database.
 ## Install it into Cobalt Core
 
 What you get: `https://<core>:3008/apps/todo/` shows the Todo List to anyone
-logged in to Cobalt who holds the **todo** tab - Read to view, All to edit -
+logged in to Cobalt who has the Todo actions assigned for the operations they use -
 and `https://<core>:3008/apps/todo/predefined` their predefined lists. Every
 user has their own.
 
@@ -148,7 +148,7 @@ TODOLIST/
 ├── dev/fake_core.py         a local stand-in for Core, for development
 ├── backend/                 FastAPI service
 │   ├── main.py              routes; every data route needs Core's identity
-│   ├── auth.py              verifies Core's JWT, names the permissions
+│   ├── auth.py              verifies Core's JWT, checks delegated actions
 │   ├── models.py            todos and predefined lists, scoped to their owner
 │   ├── database.py          JSON file storage, one file per kind of record
 │   ├── schemas.py
@@ -216,22 +216,22 @@ All under the backend's `/api`; through Core, under `/apps/todo/api`.
 
 | Method | Path | Needs |
 |---|---|---|
-| GET | `/api/todos` | `todo.todo.read` - this user's todos, newest first; `?computer_id=N` for one computer's |
-| POST | `/api/todos` | `todo.todo.all` - `{ "title", "computer_id"? }` |
-| PUT | `/api/todos/{id}` | `todo.todo.all` - title and/or done |
-| DELETE | `/api/todos/{id}` | `todo.todo.all` |
-| GET | `/api/predefined-lists` | `todo.todo.read` - this user's predefined lists, newest first |
-| POST | `/api/predefined-lists` | `todo.todo.all` - `{ "name", "items": [...] }` |
-| PUT | `/api/predefined-lists/{id}` | `todo.todo.all` - name and/or items |
-| DELETE | `/api/predefined-lists/{id}` | `todo.todo.all` |
-| GET | `/api/me` | any valid token - who is calling, and `can_write` |
+| GET | `/api/todos` | `todo.read_todo` - this user's todos, newest first; `?computer_id=N` for one computer's |
+| POST | `/api/todos` | `todo.add_todo` - `{ "title", "computer_id"? }` |
+| PUT | `/api/todos/{id}` | `todo.update_todo` - title and/or done |
+| DELETE | `/api/todos/{id}` | `todo.delete_todo` |
+| GET | `/api/predefined-lists` | `todo.read_predefined_list` - this user's predefined lists, newest first |
+| POST | `/api/predefined-lists` | `todo.add_predefined_list` - `{ "name", "items": [...] }` |
+| PUT | `/api/predefined-lists/{id}` | `todo.update_predefined_list` - name and/or items |
+| DELETE | `/api/predefined-lists/{id}` | `todo.delete_predefined_list` |
+| GET | `/api/me` | any valid token - who is calling and their delegated actions |
 | GET | `/api/health` | open |
 | GET | `/api/manifest` | open - Core installs from it |
 | GET | `/api/openapi.json` | open |
 
-Core names permissions `<app>.<tab>.<action>`: Read on the `todo` tab is
-`todo.todo.read`, All adds `todo.todo.all`. Another user's todo or list answers
-404, not 403, so ids reveal nothing.
+Core delegates the action keys declared by the plugin manifest in each signed
+JWT. Every data route requires its own action. Another user's todo or list
+answers 404, not 403, so ids reveal nothing.
 
 A predefined list is a reusable template - a name and the todo titles it would
 create, such as *New Employee Setup: create account, assign laptop, configure
@@ -247,21 +247,20 @@ computer when created with one; updating a todo keeps it.
 
 ### manifest.json
 
-Core reads `id`, `name`, `description`, `version` and the **`core`** section -
-the permission tabs the app consumes (`todo`), the role names it may be told
-(none) and its token lifetime (180 s) - and checks that every entry in
-`permissions` is Read or All on one of those tabs. Where the app runs is never
-in the manifest: Core takes it from `COBALT_APP_URL_TODO`, so shipping a
-manifest cannot redirect Core's traffic. The `frontend` section is for the ITSM
-shell.
+Core reads `id`, `name`, `description`, `version`, the **`core`** section, and
+the plugin's `actions` catalog. The catalog is an array of action-key strings;
+Core can grant those keys and include the granted set in the delegated JWT.
+Where the app runs is never in the manifest: Core
+takes it from `COBALT_APP_URL_TODO`, so shipping a manifest cannot redirect
+Core's traffic. The `frontend` section is for the ITSM shell.
 
 **`navigation`** uses the grouped contract: one group, labelled by the key
 `to-do`, with two children that both belong to this one plugin:
 
-| Label | Path | Permission |
+| Label | Path | Action |
 |---|---|---|
-| To do List | `/plugins/ui/todo` | `todo:read` |
-| Predefined to do list | `/plugins/ui/todo/predefined` | `todo:read` |
+| To do List | `/plugins/ui/todo` | `todo.read_todo` |
+| Predefined to do list | `/plugins/ui/todo/predefined` | `todo.read_predefined_list` |
 
 Both load the same federated module; the sub-path below the plugin's root
 (`''` or `/predefined`) tells it which page to render (see below).
@@ -274,18 +273,16 @@ as a key, `to-do`, and is in the key inventory. The two page labels are
 
 **`contributes`** puts this plugin into Core pages, at the extension targets
 the Core defines. The Core decides where each renders, filters them by the
-user's permissions, orders, loads, mounts, updates and unmounts them:
+user's actions, orders, loads, mounts, updates and unmounts them:
 
-| id | Target | Exposed module | Permission | Tab |
+| id | Target | Exposed module | Action | Tab |
 |---|---|---|---|---|
-| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | `todo.todo.all` | - |
-| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | `todo.todo.read` | label `to-do` (a key), `fa-square-check` |
+| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | `todo.add_todo` | - |
+| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | `todo.read_todo` | label `to-do` (a key), `fa-square-check` |
 
-Contribution permissions use the Core's own names, `<app>.<tab>.read|all`,
-not the navigation's `todo:read` spelling. The header action adds todos, so
-only users who may add them see it; the tab is shown to readers, without the
-add form when they cannot write. The tab's label is a key: the Core draws
-the tab and translates it.
+The header action adds todos, so only users with `todo.add_todo` see it; the
+tab is shown to users with `todo.read_todo`. The tab's label is a key: the Core
+draws the tab and translates it.
 
 ### Module Federation remote
 
@@ -512,7 +509,6 @@ inventory, and the test suite carries an open `todo` for it.
 | `COBALT_ISSUER` | `cobalt-core` | Backend: must equal Core's `CORE_JWT_ISSUER` |
 | `COBALT_TENANT_ID` | any | Backend: must equal Core's `CORE_TENANT_ID` |
 | `COBALT_AUDIENCE` | `todo` | Backend: this app's key in Core |
-| `COBALT_PERMISSION_TAB` | `todo` | Backend: the Core tab its permissions hang off |
 | `CORE_HOSTNAME` | - | Compose: Core's name, mapped to this machine in the backend container |
 | `TODO_BIND_ADDRESS` / `TODO_PORT` | `127.0.0.1` / `8080` | Compose: where Core reaches the gateway |
 | `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage: todos |
