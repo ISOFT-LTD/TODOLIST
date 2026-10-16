@@ -62,6 +62,9 @@ runtime:
       tag: 1.4.0
       port: 8080
       dependsOn: [backend]
+      # Forge runs every service on a read-only root. nginx-unprivileged writes its config into
+      # conf.d from the template when it starts, so that folder is a tmpfs.
+      tmpfs: [/etc/nginx/conf.d]
       # Through the gateway, so it proves nginx and the backend together.
       health:
         path: /api/health
