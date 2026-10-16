@@ -13,7 +13,7 @@ kind: App
 metadata:
   id: todo
   name: Todo List
-  version: 1.4.0
+  version: 1.5.0
   vendor: ITEC
   description: A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy
   license: proprietary
@@ -41,7 +41,7 @@ runtime:
   services:
     - name: backend
       image: ghcr.io/itec-git/apps/todo-backend
-      tag: 1.4.0
+      tag: 1.5.0
       port: 8000
       # No health block here: Forge's Docker probe needs curl or wget, which the Python image has
       # not got. The image's own HEALTHCHECK asks /api/health with Python instead.
@@ -59,7 +59,7 @@ runtime:
           path: /data
     - name: frontend
       image: ghcr.io/itec-git/apps/todo-frontend
-      tag: 1.4.0
+      tag: 1.5.0
       port: 8080
       dependsOn: [backend]
       # Forge runs every service on a read-only root. nginx-unprivileged writes its config into

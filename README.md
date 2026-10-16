@@ -113,7 +113,7 @@ app's manifest from the running app and registers it:
 docker compose exec app python scripts/install_application.py --from-service todo
 ```
 
-It prints `Todo List (todo 1.4.0): registered` and a checklist. Installing
+It prints `Todo List (todo 1.5.0): registered` and a checklist. Installing
 again after an upgrade is the same command. From a browser instead, as an
 administrator: `POST /auth/applications/install` with this repository's
 `manifest.json` as the body.
@@ -207,8 +207,10 @@ cd frontend && pnpm install && pnpm dev
 The frontend uses pnpm 10 (`npm install --global pnpm@10.34.5`), because
 Forge's release workflow installs with `pnpm install --frozen-lockfile`.
 
-Open `http://localhost:5173`. `DEV_ACCESS=read` makes you a read-only user,
-`DEV_USER_ID` and `DEV_USERNAME` change who you are. Stop it with Ctrl+C.
+Open `http://localhost:5173`. `DEV_ACCESS=read` makes you a read-only user
+(only the two view actions), `DEV_ACCESS=approval` sends every change for
+approval, so you see the pending card; `DEV_USER_ID` and `DEV_USERNAME` change
+who you are. Stop it with Ctrl+C.
 
 Tests:
 
@@ -222,7 +224,8 @@ cd frontend && pnpm test && pnpm build
 
 One backend test checks that `manifest.json` is exactly `pulsar.yaml` rendered.
 It needs forge-sdk, which is not on a public index yet, and is skipped without
-it. With a Forge checkout beside this one:
+it. Rendering `backend.actions` needs a forge-sdk that knows actions (Forge 1.0
+with ADR-06 revision 3). With a Forge checkout beside this one:
 
 ```bash
 pip install -e ../forge/packages/forge-sdk
@@ -247,24 +250,64 @@ cd frontend && pnpm translation-keys
 
 All under the backend's `/api`; through Core, under `/apps/todo/api`.
 
-| Method | Path | Needs |
+| Method | Path | Action |
 |---|---|---|
-| GET | `/api/todos` | `todo.todo.read` - this user's todos, newest first; `?computer_id=N` for one computer's |
-| POST | `/api/todos` | `todo.todo.all` - `{ "title", "computer_id"? }` |
-| PUT | `/api/todos/{id}` | `todo.todo.all` - title and/or done |
-| DELETE | `/api/todos/{id}` | `todo.todo.all` |
-| GET | `/api/predefined-lists` | `todo.todo.read` - this user's predefined lists, newest first |
-| POST | `/api/predefined-lists` | `todo.todo.all` - `{ "name", "items": [...] }` |
-| PUT | `/api/predefined-lists/{id}` | `todo.todo.all` - name and/or items |
-| DELETE | `/api/predefined-lists/{id}` | `todo.todo.all` |
-| GET | `/api/me` | any valid token - who is calling, and `can_write` |
+| GET | `/api/todos` | `todo.view` - this user's todos, newest first; `?computer_id=N` for one computer's |
+| POST | `/api/todos` | `todo.create` - `{ "title", "computer_id"? }` |
+| PUT | `/api/todos/{id}` | `todo.update` - title and/or done |
+| DELETE | `/api/todos/{id}` | `todo.delete` |
+| GET | `/api/predefined-lists` | `predefined.view` - this user's predefined lists, newest first |
+| POST | `/api/predefined-lists` | `predefined.create` - `{ "name", "items": [...] }` |
+| PUT | `/api/predefined-lists/{id}` | `predefined.update` - name and/or items |
+| DELETE | `/api/predefined-lists/{id}` | `predefined.delete` |
+| GET | `/api/me` | any valid token - who is calling, and Core's decision on each action |
 | GET | `/api/health` | open |
 | GET | `/api/manifest` | open - Core installs from it |
 | GET | `/api/openapi.json` | open |
 
-Core names permissions `<app>.<tab>.<action>`: Read on the `todo` tab is
-`todo.todo.read`, All adds `todo.todo.all`. Another user's todo or list answers
-404, not 403, so ids reveal nothing.
+Another user's todo or list answers 404, not 403, so ids reveal nothing.
+
+### Actions
+
+The tabs (`todo`, and the pages' sub tabs `todo-list` and `todo-predefined`)
+decide who reaches the app and sees its pages. Inside, every data route checks
+one **action**. `pulsar.yaml` declares the eight under `backend.actions`, each
+on the sub tab of the page it acts on (`todo.*` on `todo-list`,
+`predefined.*` on `todo-predefined`), so the role editor lists them under that
+page. Core stores them as `todo.<key>` (`todo.todo.create`), and an
+administrator sets each one per role to Allow, Deny or Require approval.
+
+Core's token carries the caller's decision on each, keyed without the app's
+id: `"action_permissions": {"todo.create": "ALLOW", ...}`. The backend reads it
+from the verified claims (`auth.py`; the vendored `cobalt_identity` is not
+edited) and, before the route does anything:
+
+| Decision | Answer |
+|---|---|
+| `ALLOW` | the route runs |
+| `REQUIRE_APPROVAL` | `202`, headers `X-Cobalt-Approval-Required: true` and `X-Cobalt-Approval-Action: <key>`, body `{"detail": {"status": "REQUIRE_APPROVAL", "action_key": "<key>", "message": "Approval required"}}` |
+| `DENY`, none, or anything else | `403` `{"detail": {"message": "Action denied", "action_key": "<key>", "status": "DENY"}}` |
+
+Core turns the `202` into an approval request and answers the browser
+`202 {"detail": {"status": "PENDING", "approval_request_id": ..., ...}}`; the
+pages and the Add Todo action show it in an approval card. Once an
+administrator approves, Core sends the same call again with the action
+`ALLOW` and the claim `approval_request_id`. A create keys its record by that
+id, so a second delivery of the same approval returns the first record
+instead of adding another; an update sets the same values again and a delete
+answers `404` the second time.
+
+`GET /api/me` returns `actions` (the allowed ones) and `action_permissions`
+(every decision). The UI offers a control for `ALLOW` and `REQUIRE_APPROVAL`
+and hides it otherwise (`frontend/src/actions.js`); `can_read` and
+`can_write` stay for an older UI. One set of names is used everywhere:
+`backend/auth.py`, `frontend/src/actions.js`, `dev/fake_core.py` and the
+tests, and `backend/tests/test_actions.py` fails when they drift.
+
+Granting: Cobalt_Api `merge-08-10` gives a newly installed app's actions to
+nobody (SuperUser gets them at Core's next restart). An administrator sets
+them per role in the role editor; the user then signs out and in again, because
+the panel reads grants at login.
 
 A predefined list is a reusable template - a name and the todo titles it would
 create, such as *New Employee Setup: create account, assign laptop, configure
@@ -530,7 +573,6 @@ disagree.
 | `COBALT_ISSUER` | `cobalt-core` | Backend: must equal Core's `CORE_JWT_ISSUER` |
 | `COBALT_TENANT_ID` | any | Backend: must equal Core's `CORE_TENANT_ID` |
 | `COBALT_AUDIENCE` | `todo` | Backend: this app's key in Core |
-| `COBALT_PERMISSION_TAB` | `todo` | Backend: the Core tab its permissions hang off |
 | `CORE_HOSTNAME` | - | Compose: Core's name, mapped to this machine in the backend container |
 | `TODO_BIND_ADDRESS` / `TODO_PORT` | `127.0.0.1` / `8080` | Compose: where Core reaches the gateway |
 | `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage: todos |
@@ -553,11 +595,11 @@ and `ghcr.io/itec-git/todo/release:<version>`. A server then installs it with
 `forge install`. The images build the same way by hand:
 
 ```bash
-docker build -f backend/Dockerfile -t ghcr.io/itec-git/apps/todo-backend:1.4.0 .
+docker build -f backend/Dockerfile -t ghcr.io/itec-git/apps/todo-backend:1.5.0 .
 ```
 
 ```bash
-docker build -f frontend/Dockerfile -t ghcr.io/itec-git/apps/todo-frontend:1.4.0 .
+docker build -f frontend/Dockerfile -t ghcr.io/itec-git/apps/todo-frontend:1.5.0 .
 ```
 
 Under Forge the app runs as the compose project `forge-todo`, with a volume of
