@@ -8,7 +8,10 @@ Per request it does what Core's /apps proxy does: mints a fresh, short-lived
 delegated token for this app - with the same claim builder Core uses - and
 forwards the call to the backend as ``Authorization: Bearer``. An upstream 401
 comes back as 502, as it does from Core, because to the browser a 401 means
-"your session has ended".
+"your session has ended". The token carries your decision on each of the app's
+actions; when the backend answers an action with Core's approval challenge,
+this answers 202 PENDING as Core does once it has stored the request (it
+stores nothing: there is nobody here to approve it).
 
 This is not a way in. The backend has no idea this script exists: it trusts
 whichever key COBALT_CORE_JWKS_FILE names, and this script starts it pointed
@@ -19,9 +22,12 @@ Who you are, from the environment:
 
     DEV_USER_ID      the user id (the token's sub)            [1]
     DEV_USERNAME     the display name                         [developer]
-    DEV_ACCESS       write (Read + All on the tab) or read    [write]
+    DEV_ACCESS       write: every action allowed               [write]
+                     read: only todo.view and predefined.view
+                     approval: views allowed, every change needs approval
 """
 
+import itertools
 import json
 import os
 import subprocess
@@ -39,7 +45,6 @@ from fastapi import FastAPI, Request, Response  # noqa: E402
 from cobalt_identity.testing import LocalIssuer  # noqa: E402
 
 APP_KEY = os.getenv("COBALT_AUDIENCE", "todo")
-TAB = os.getenv("COBALT_PERMISSION_TAB", "todo")
 TENANT = os.getenv("COBALT_TENANT_ID", "dev")
 USER_ID = os.getenv("DEV_USER_ID", "1")
 USERNAME = os.getenv("DEV_USERNAME", "developer")
@@ -53,14 +58,45 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 backend = httpx.AsyncClient(base_url=f"http://127.0.0.1:{BACKEND_PORT}", timeout=30)
 
 
-def _permissions():
-    read = f"{APP_KEY}.{TAB}.read"
-    return [read, f"{APP_KEY}.{TAB}.all"] if ACCESS == "write" else [read]
+# The actions pulsar.yaml declares, by the names the token carries them under.
+VIEWS = ("todo.view", "predefined.view")
+CHANGES = (
+    "todo.create", "todo.update", "todo.delete",
+    "predefined.create", "predefined.update", "predefined.delete",
+)
+CHANGE_DECISION = {"write": "ALLOW", "approval": "REQUIRE_APPROVAL"}.get(ACCESS, "DENY")
+approval_ids = itertools.count(1)
+
+
+def _action_permissions():
+    """Your decision on each action, as Core's token carries it."""
+    return {
+        **{key: "ALLOW" for key in VIEWS},
+        **{key: CHANGE_DECISION for key in CHANGES},
+    }
+
+
+def _pending(upstream):
+    """Core's answer to the browser for the backend's approval challenge, or None."""
+    action = upstream.headers.get("x-cobalt-approval-action")
+    if upstream.status_code != 202 or upstream.headers.get("x-cobalt-approval-required") != "true":
+        return None
+    body = {"detail": {
+        "status": "PENDING",
+        "approval_request_id": next(approval_ids),
+        "action_key": f"{APP_KEY}.{action}",
+        "message": "Approval request created",
+    }}
+    return Response(json.dumps(body), status_code=202, media_type="application/json")
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def forward(path: str, request: Request):
-    token = issuer.mint(USER_ID, APP_KEY, permissions=_permissions(), username=USERNAME)
+    decisions = _action_permissions()
+    token = issuer.mint(
+        USER_ID, APP_KEY, username=USERNAME, action_permissions=decisions,
+        actions=sorted(key for key, decision in decisions.items() if decision == "ALLOW"),
+    )
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": request.headers.get("accept", "application/json"),
@@ -75,6 +111,9 @@ async def forward(path: str, request: Request):
     if upstream.status_code == 401:
         return Response('{"detail":"The application rejected Core\'s identity"}',
                         status_code=502, media_type="application/json")
+    pending = _pending(upstream)
+    if pending is not None:
+        return pending
     return Response(upstream.content, status_code=upstream.status_code,
                     media_type=upstream.headers.get("content-type"))
 

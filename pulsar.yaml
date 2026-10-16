@@ -91,6 +91,43 @@ backend:
       description: Create, edit and delete todo items and predefined lists
       tab: todo
       level: all
+  # Core's second permission layer. An administrator sets each action per role to Allow, Deny or
+  # Require approval in the role editor, which lists it under its tab: the sub tab Core makes for
+  # the page it acts on (todo + list, todo + predefined). Core stores them as todo.<key>, and the
+  # token carries the caller's decision on each one; every data route checks its own (auth.py).
+  actions:
+    - key: todo.view
+      name: View Todo Items
+      description: View personal todo items
+      tab: todo-list
+    - key: todo.create
+      name: Create Todo Item
+      description: Create a new todo item
+      tab: todo-list
+    - key: todo.update
+      name: Update Todo Item
+      description: Edit an existing todo item
+      tab: todo-list
+    - key: todo.delete
+      name: Delete Todo Item
+      description: Delete an existing todo item
+      tab: todo-list
+    - key: predefined.view
+      name: View Predefined Todo Lists
+      description: View reusable predefined todo lists
+      tab: todo-predefined
+    - key: predefined.create
+      name: Create Predefined Todo List
+      description: Create a reusable predefined todo list
+      tab: todo-predefined
+    - key: predefined.update
+      name: Update Predefined Todo List
+      description: Edit a predefined todo list
+      tab: todo-predefined
+    - key: predefined.delete
+      name: Delete Predefined Todo List
+      description: Delete a predefined todo list
+      tab: todo-predefined
 
 ui:
   remote:
