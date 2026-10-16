@@ -13,17 +13,27 @@
  */
 
 import { createPluginTranslation } from '../plugin-translation.js';
+import { ACTIONS, hasAction } from '../actions.js';
+import { hidePendingApproval, showPendingApproval } from '../approval-card.js';
 import { appendHtml, describeUser, whoIsCalling } from './shared.js';
 
 const TEMPLATE = `
   <main class="todo">
     <h1 data-i18n="todo.predefined-title"></h1>
     <p class="who" hidden></p>
-    <form class="add-form template-form">
+    <form class="add-form template-form" hidden>
       <input type="text" class="new-name" data-i18n-placeholder="todo.list-name-placeholder" autocomplete="off" required>
       <textarea class="new-items" rows="4" data-i18n-placeholder="todo.list-items-placeholder" required></textarea>
       <button type="submit" class="primary" data-i18n="todo.add-list"></button>
     </form>
+    <section class="approval-card" role="status" aria-live="polite" hidden>
+      <strong class="approval-message"></strong>
+      <div class="approval-meta">
+        <span class="approval-id"></span>
+        <span class="approval-action"></span>
+        <span class="approval-status"></span>
+      </div>
+    </section>
     <ul class="list"></ul>
     <p class="error" hidden></p>
   </main>
@@ -43,12 +53,14 @@ export function mountPredefinedLists(root, { api, i18n }) {
   const nameInput = root.querySelector('.new-name');
   const itemsInput = root.querySelector('.new-items');
   const errorBox = root.querySelector('.error');
+  const approvalCard = root.querySelector('.approval-card');
   const who = root.querySelector('.who');
 
   let destroyed = false;
   let editingId = null;
-  // Until GET /me says otherwise. The service enforces it either way.
-  let canWrite = true;
+  let canCreate = false;
+  let canUpdate = false;
+  let canDelete = false;
   let me = null;
 
   /** An error as the SDK worded it: data, shown as it is. */
@@ -113,12 +125,14 @@ export function mountPredefinedLists(root, { api, i18n }) {
     name.textContent = template.name;
     head.append(name);
 
-    if (canWrite) {
+    if (canUpdate) {
       const editBtn = document.createElement('button');
       texts.text(editBtn, 'todo.edit');
       editBtn.onclick = () => { editingId = template.id; load(); };
       head.append(editBtn);
+    }
 
+    if (canDelete) {
       const del = document.createElement('button');
       texts.text(del, 'todo.delete');
       del.onclick = () => remove(template.id);
@@ -158,7 +172,7 @@ export function mountPredefinedLists(root, { api, i18n }) {
   /** Who is signed in, in the words of the moment. */
   function drawWho() {
     if (!me) return;
-    who.textContent = describeUser(me, texts.t);
+    who.textContent = describeUser(me, texts.t, canCreate || canUpdate || canDelete);
     who.hidden = !who.textContent;
   }
   texts.onChange(drawWho);
@@ -167,15 +181,23 @@ export function mountPredefinedLists(root, { api, i18n }) {
     const found = await whoIsCalling(api);
     if (!found || destroyed) return;
     me = found;
-    canWrite = me.canWrite;
+    canCreate = hasAction(me, ACTIONS.PREDEFINED_CREATE);
+    canUpdate = hasAction(me, ACTIONS.PREDEFINED_UPDATE);
+    canDelete = hasAction(me, ACTIONS.PREDEFINED_DELETE);
     drawWho();
-    form.hidden = !canWrite;
+    form.hidden = !canCreate;
   }
 
   async function load() {
     try {
       showError('');
-      render(await api.get('/predefined-lists'));
+      hidePendingApproval(approvalCard);
+      const response = await api.get('/predefined-lists');
+      if (showPendingApproval(approvalCard, response)) {
+        list.innerHTML = '';
+        return;
+      }
+      render(response);
     } catch (err) {
       showError(err.message);
     }
@@ -186,7 +208,11 @@ export function mountPredefinedLists(root, { api, i18n }) {
     if (!name.trim()) return showProblem('todo.list-name-required');
     if (!items.length) return showProblem('todo.list-items-required');
     try {
-      await api.put(`/predefined-lists/${id}`, { name: name.trim(), items });
+      hidePendingApproval(approvalCard);
+      const response = await api.put(
+        `/predefined-lists/${id}`, { name: name.trim(), items },
+      );
+      if (showPendingApproval(approvalCard, response)) return;
       editingId = null;
       load();
     } catch (err) {
@@ -196,7 +222,9 @@ export function mountPredefinedLists(root, { api, i18n }) {
 
   async function remove(id) {
     try {
-      await api.delete(`/predefined-lists/${id}`);
+      hidePendingApproval(approvalCard);
+      const response = await api.delete(`/predefined-lists/${id}`);
+      if (showPendingApproval(approvalCard, response)) return;
       load();
     } catch (err) {
       showError(err.message);
@@ -210,7 +238,9 @@ export function mountPredefinedLists(root, { api, i18n }) {
     if (!name) return;
     if (!items.length) return showProblem('todo.list-items-required');
     try {
-      await api.post('/predefined-lists', { name, items });
+      hidePendingApproval(approvalCard);
+      const response = await api.post('/predefined-lists', { name, items });
+      if (showPendingApproval(approvalCard, response)) return;
       nameInput.value = '';
       itemsInput.value = '';
       load();

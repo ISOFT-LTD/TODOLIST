@@ -43,11 +43,15 @@ function filesUnder(dir) {
   });
 }
 
-/** What the plugin ships: its sources and the standalone page, without the tests and their stand-ins. */
+/**
+ * What the plugin ships: its sources and the standalone page, without the tests and their
+ * stand-ins, and without actions.js: it holds Core's action keys (todo.view, todo.delete), which
+ * look like translation keys but are never shown.
+ */
 const shipped = [
   ...filesUnder(SRC).filter((file) => {
     const rel = relative(SRC, file).replace(/\\/g, '/');
-    return !rel.endsWith('.test.js') && !rel.startsWith('testing/');
+    return !rel.endsWith('.test.js') && !rel.startsWith('testing/') && rel !== 'actions.js';
   }),
   join(FRONTEND, 'index.html'),
 ];

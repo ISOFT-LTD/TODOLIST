@@ -6,14 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as actionModule from './computer-todo-action.js';
 import * as tabModule from './computer-todo-tab.js';
 import { en, fakeI18n } from '../testing/i18n.js';
+import { meOf } from '../testing/sdk.js';
 
 /** The Core's SDK v1 over an in-memory todo API. */
-function fakeSdk({ canWrite = true } = {}) {
+function fakeSdk({ canWrite = true, decisions = {} } = {}) {
   const todos = [];
   let nextId = 1;
   const api = {
     get: vi.fn(async (path) => {
-      if (path === '/me') return { username: 'alice', can_write: canWrite };
+      if (path === '/me') return meOf({ canWrite, decisions });
       const url = new URL(path, 'http://api.invalid');
       const computer = url.searchParams.get('computer_id');
       return todos

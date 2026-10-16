@@ -42,4 +42,14 @@ input[type=text] {
 input[type=text]:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
 
 .error { color: #b42318; margin: 8px 0 0; }
+.approval-card {
+  margin: 12px 0 0; padding: 12px 14px; border: 1px solid #d8a84e;
+  border-radius: 8px; background: #fff8e6; color: #573a00;
+}
+.approval-card strong { display: block; margin-bottom: 8px; }
+.approval-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.approval-meta span {
+  padding: 3px 7px; border: 1px solid #e2bf78; border-radius: 4px;
+  background: #fff; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
