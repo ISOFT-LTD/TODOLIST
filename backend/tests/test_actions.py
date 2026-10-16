@@ -54,7 +54,8 @@ def replay(action, request_id, subject="17"):
 @pytest.fixture()
 def seeded(client):
     """One todo and one predefined list of the caller's, both id 1."""
-    assert client.post("/api/todos", json={"title": "Buy milk"}, headers=as_user()).json()["id"] == 1
+    created = client.post("/api/todos", json={"title": "Buy milk"}, headers=as_user())
+    assert created.json()["id"] == 1
     assert client.post("/api/predefined-lists", json=LIST, headers=as_user()).json()["id"] == 1
     return client
 
@@ -133,14 +134,18 @@ def test_anything_but_allow_or_approval_is_403(seeded, method, path, body, actio
 def test_a_malformed_claim_grants_nothing(client, claim):
     bearer = token(action_permissions=claim)
 
-    assert client.get("/api/todos", headers={"Authorization": f"Bearer {bearer}"}).status_code == 403
+    response = client.get("/api/todos", headers={"Authorization": f"Bearer {bearer}"})
+
+    assert response.status_code == 403
 
 
 def test_the_old_tab_permissions_grant_nothing(client):
     """todo.todo.all was the gate before actions; it is no longer read."""
     bearer = token(decisions={}, permissions=["todo.todo.read", "todo.todo.all"])
 
-    assert client.get("/api/todos", headers={"Authorization": f"Bearer {bearer}"}).status_code == 403
+    response = client.get("/api/todos", headers={"Authorization": f"Bearer {bearer}"})
+
+    assert response.status_code == 403
 
 
 def test_an_action_pulsar_yaml_does_not_declare_cannot_guard_a_route():

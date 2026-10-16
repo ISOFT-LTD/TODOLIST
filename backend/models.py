@@ -36,7 +36,8 @@ def _made_by(rows: List[dict], load, tenant_id: str, owner: str,
         return None
     for row in rows:
         record = load(row)
-        if record.approval_request_id == approval_request_id and record.belongs_to(tenant_id, owner):
+        if (record.approval_request_id == approval_request_id
+                and record.belongs_to(tenant_id, owner)):
             return record
     return None
 

@@ -44,10 +44,15 @@ import os
 from collections.abc import Mapping
 from typing import Dict, Optional
 
-from fastapi import Depends, HTTPException, status
-
-from cobalt_identity import DelegatedIdentity, JwksUrl, ReplayCache, StaticKeys, TokenVerifier
+from cobalt_identity import (
+    DelegatedIdentity,
+    JwksUrl,
+    ReplayCache,
+    StaticKeys,
+    TokenVerifier,
+)
 from cobalt_identity.fastapi_deps import require_identity
+from fastapi import Depends, HTTPException, status
 
 logger = logging.getLogger(__name__)
 

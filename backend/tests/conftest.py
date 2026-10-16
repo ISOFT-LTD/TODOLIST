@@ -33,7 +33,11 @@ EVERY_ACTION = {
         "predefined.view", "predefined.create", "predefined.update", "predefined.delete",
     )
 }
-READ_ONLY = {**{key: "DENY" for key in EVERY_ACTION}, "todo.view": "ALLOW", "predefined.view": "ALLOW"}
+READ_ONLY = {
+    **{key: "DENY" for key in EVERY_ACTION},
+    "todo.view": "ALLOW",
+    "predefined.view": "ALLOW",
+}
 
 ISSUER = LocalIssuer(tenant_id=TENANT)
 
