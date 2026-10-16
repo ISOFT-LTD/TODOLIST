@@ -29,7 +29,7 @@ Browser, logged in to Cobalt (HttpOnly session cookie)
         ▼
 Cobalt Core
    • validates the session, checks the user may reach "todo" at all
-   • mints a 3-minute JWT for audience "todo" with the user's permissions
+   • mints a 3-minute JWT for audience "todo" with the user's action decisions
         │  Authorization: Bearer <jwt>, server to server
         ▼
 todo-frontend (nginx, 127.0.0.1:8080)  ── /api/ ──►  todo-backend (FastAPI)
@@ -45,9 +45,11 @@ Core's database.
 ## Install it into Cobalt Core
 
 What you get: `https://<core>:3008/apps/todo/` shows the Todo List to anyone
-logged in to Cobalt who holds the **todo** tab - Read to view, All to edit -
-and `https://<core>:3008/apps/todo/predefined` their predefined lists. Every
-user has their own.
+logged in to Cobalt who holds the **todo** tab, and
+`https://<core>:3008/apps/todo/predefined` their predefined lists. Every user
+has their own. The panel shows each page to a user holding its sub tab
+(`todo-list`, `todo-predefined`) at All, and what they may do on it is set by
+the eight [actions](#actions).
 
 **Core needs** (all on `working-merge-integration`): delegated identity
 configured (`CORE_JWT_PRIVATE_KEY_FILE` - the startup log says
@@ -161,8 +163,8 @@ TODOLIST/
 ├── cobalt/                  optional saved copy of Core's public keys
 ├── dev/fake_core.py         a local stand-in for Core, for development
 ├── backend/                 FastAPI service
-│   ├── main.py              routes; every data route needs Core's identity
-│   ├── auth.py              verifies Core's JWT, names the permissions
+│   ├── main.py              routes; every data route needs Core's identity and its action
+│   ├── auth.py              verifies Core's JWT, checks each route's action
 │   ├── models.py            todos and predefined lists, scoped to their owner
 │   ├── database.py          JSON file storage, one file per kind of record
 │   ├── schemas.py
