@@ -6,8 +6,9 @@ kind: App
 # file rendered by forge-sdk: run python scripts/render_manifest.py after every change (the backend
 # tests fail while they disagree). Check it with: forge validate .
 #
-# The labels are translation keys (todo, todo-list, predefined-todo-list): the panel translates
-# them, and frontend/translations/ holds their words.
+# The labels are translation keys (todo, todo-list, todo-predefined): the panel translates them,
+# and frontend/translations/ lists them. A page's label is also the tab the panel opens it for, so
+# each link's label is the sub tab Core makes for it: todo + subTab.
 
 metadata:
   id: todo
@@ -152,7 +153,7 @@ ui:
           permission: todo:read
           subTab: list
           order: 101
-        - label: predefined-todo-list
+        - label: todo-predefined
           path: /plugins/ui/todo/predefined
           permission: todo:read
           subTab: predefined

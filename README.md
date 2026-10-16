@@ -295,7 +295,7 @@ this one plugin:
 | Label | Path | Permission | Sub tab |
 |---|---|---|---|
 | `todo-list` | `/plugins/ui/todo` | `todo:read` | `list` |
-| `predefined-todo-list` | `/plugins/ui/todo/predefined` | `todo:read` | `predefined` |
+| `todo-predefined` | `/plugins/ui/todo/predefined` | `todo:read` | `predefined` |
 
 Both load the same federated module; the sub-path below the plugin's root
 (`''` or `/predefined`) tells it which page to render (see below). The Core
@@ -493,10 +493,10 @@ a key with the key itself, marked with the language: `⟦en:todo.add⟧`, and
 
 **Keys.** The plugin's own are `todo.<key>`. It reads no key of the Core's.
 The labels the Core draws are keys too: `todo` for the group and for the
-Computer Details tab, `todo-list` and `predefined-todo-list` for the two
+Computer Details tab, `todo-list` and `todo-predefined` for the two
 pages.
 
-> `todo`, `todo-list`, `predefined-todo-list` and `todo.*` do not start with
+> `todo`, `todo-list`, `todo-predefined` and `todo.*` do not start with
 > `plugin.`, which is the namespace the Core's documents reserve for plugins
 > (`plugin.<id>.<key>`); by those documents a key without that prefix is a
 > key of the Core. Whoever adds the rows must check that none of these keys
@@ -504,22 +504,22 @@ pages.
 
 #### Page labels and the panel's page gate
 
-The two page labels are keys, and each page names its own `subTab`, so Core
-gives it a sub tab of its own, `todo-<subTab>`: `todo-list` and
-`todo-predefined`. The label no longer has to be the tab's name for Core.
+Each page names its own `subTab`, so Core gives it a sub tab of its own,
+`todo-<subTab>`: `todo-list` and `todo-predefined`. The panel opens a page
+only for a user who holds, at level All, the tab named exactly like the page's
+label, and draws the label's text by that same key. So each page's label is
+its sub tab:
 
-The panel still has one use of the label left over: its page gate takes the
-label, exactly as written, as the page's tab name (`api/fetchPlugins.ts`,
-`pageOfGroup`) and looks it up in the user's `allowed_tabs`:
-
-| Label | The panel's gate looks for | Core's sub tab |
+| Label | Core's sub tab | The panel's gate looks for |
 |---|---|---|
 | `todo-list` | `todo-list` | `todo-list` |
-| `predefined-todo-list` | `predefined-todo-list` | `todo-predefined` |
+| `todo-predefined` | `todo-predefined` | `todo-predefined` |
 
-So until the panel gates a page on the tab Core returns for it (itsm-front,
-branch `forge-panel-fixes`), the Predefined page is hidden by the panel even
-from users Core lets in. The test suite keeps an open `todo` for it.
+Until 1.5.0 the second label was `predefined-todo-list`, a tab nobody holds,
+so the panel hid the Predefined page from everyone. The translation rows for
+`predefined-todo-list` move to `todo-predefined`.
+`frontend/src/translation-inventory.test.js` fails when a label and its sub tab
+disagree.
 
 ## Configuration
 

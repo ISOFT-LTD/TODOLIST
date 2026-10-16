@@ -39,7 +39,7 @@
           "order": 101
         },
         {
-          "label": "predefined-todo-list",
+          "label": "todo-predefined",
           "path": "/plugins/ui/todo/predefined",
           "permission": "todo:read",
           "subTab": "predefined",
