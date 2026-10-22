@@ -2,7 +2,7 @@
 
 import pytest
 
-from conftest import READ, as_user
+from conftest import READ_ONLY, as_user
 
 LIST = "/api/predefined-lists"
 
@@ -12,21 +12,21 @@ SETUP = {
 }
 
 
-# --- permissions --------------------------------------------------------------
+# --- actions -----------------------------------------------------------------
 
 def test_no_token_is_401(client):
     assert client.get(LIST).status_code == 401
 
 
-def test_read_permission_lists_but_cannot_write(client):
-    reader = dict(permissions=[READ])
+def test_view_lists_but_cannot_write(client):
+    reader = dict(decisions=READ_ONLY)
 
     assert client.get(LIST, headers=as_user(**reader)).status_code == 200
     assert client.post(LIST, json=SETUP, headers=as_user(**reader)).status_code == 403
 
 
-def test_no_permission_on_this_app_cannot_even_list(client):
-    assert client.get(LIST, headers=as_user(permissions=[])).status_code == 403
+def test_no_decision_on_this_app_cannot_even_list(client):
+    assert client.get(LIST, headers=as_user(decisions={})).status_code == 403
 
 
 # --- the whole lifecycle -------------------------------------------------------

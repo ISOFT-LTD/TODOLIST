@@ -1,5 +1,33 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { federation } from '@module-federation/vite';
+import { parse } from 'yaml';
+
+// The panel checks the remote's name, its entry file and its modules against the manifest Core
+// serves, which is ../pulsar.yaml rendered. So they are read from there, and the build stops when
+// pulsar.yaml names a module this file has no source for, or the other way round.
+const manifestFile = fileURLToPath(new URL('../pulsar.yaml', import.meta.url));
+const { ui } = parse(readFileSync(manifestFile, 'utf8'));
+
+// Each module the panel can load, and its source.
+const sources = {
+  // The standalone pages: mount(el, { sdk, path }).
+  './TodoApp': './src/todo-app.js',
+  // Core extension contributions (pulsar.yaml, ui.contributions):
+  // mount(el, context, sdk) returning { update, unmount }.
+  './ComputerTodoAction': './src/extensions/computer-todo-action.js',
+  './ComputerTodoTab': './src/extensions/computer-todo-tab.js',
+};
+const declared = [ui.remote.exposedModule, ...(ui.contributions ?? []).map((c) => c.exposedModule)];
+const undeclared = Object.keys(sources).filter((name) => !declared.includes(name));
+const missing = declared.filter((name) => !(name in sources));
+if (missing.length || undeclared.length) {
+  throw new Error(
+    `${manifestFile} and vite.config.js disagree. No source for: ${missing.join(', ') || 'none'}. ` +
+      `Not in pulsar.yaml: ${undeclared.join(', ') || 'none'}.`,
+  );
+}
 
 export default defineConfig({
   // Relative asset URLs so the build works wherever it is served from:
@@ -8,16 +36,9 @@ export default defineConfig({
 
   plugins: [
     federation({
-      name: 'todo_plugin',
-      filename: 'remoteEntry.js',
-      exposes: {
-        // The standalone pages: mount(el, { sdk, path }).
-        './TodoApp': './src/todo-app.js',
-        // Core extension contributions (manifest.json, `contributes`):
-        // mount(el, context, sdk) returning { update, unmount }.
-        './ComputerTodoAction': './src/extensions/computer-todo-action.js',
-        './ComputerTodoTab': './src/extensions/computer-todo-tab.js',
-      },
+      name: ui.remote.remoteName,
+      filename: ui.remote.entry,
+      exposes: sources,
       // Vanilla JS: nothing to share with the React shell.
       shared: {},
       manifest: true,

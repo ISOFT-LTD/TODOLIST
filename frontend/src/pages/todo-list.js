@@ -17,16 +17,26 @@
 
 import { createPluginTranslation } from '../plugin-translation.js';
 import { onTodosChanged } from '../todo-events.js';
+import { ACTIONS, hasAction } from '../actions.js';
+import { hidePendingApproval, showPendingApproval } from '../approval-card.js';
 import { appendHtml, describeUser, whoIsCalling } from './shared.js';
 
 const TEMPLATE = `
   <main class="todo">
     <h1 data-i18n="todo.title"></h1>
     <p class="who" hidden></p>
-    <form class="add-form">
+    <form class="add-form" hidden>
       <input type="text" class="new-title" data-i18n-placeholder="todo.new-todo-placeholder" autocomplete="off" required>
       <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
+    <section class="approval-card" role="status" aria-live="polite" hidden>
+      <strong class="approval-message"></strong>
+      <div class="approval-meta">
+        <span class="approval-id"></span>
+        <span class="approval-action"></span>
+        <span class="approval-status"></span>
+      </div>
+    </section>
     <ul class="list"></ul>
     <p class="error" hidden></p>
   </main>
@@ -35,10 +45,18 @@ const TEMPLATE = `
 const EMBEDDED_TEMPLATE = `
   <main class="todo embedded">
     <p class="who" hidden></p>
-    <form class="add-form">
+    <form class="add-form" hidden>
       <input type="text" class="new-title" data-i18n-placeholder="todo.new-computer-todo-placeholder" autocomplete="off" required>
       <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
+    <section class="approval-card" role="status" aria-live="polite" hidden>
+      <strong class="approval-message"></strong>
+      <div class="approval-meta">
+        <span class="approval-id"></span>
+        <span class="approval-action"></span>
+        <span class="approval-status"></span>
+      </div>
+    </section>
     <ul class="list"></ul>
     <p class="error" hidden></p>
   </main>
@@ -54,12 +72,14 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
   const form = root.querySelector('.add-form');
   const input = root.querySelector('.new-title');
   const errorBox = root.querySelector('.error');
+  const approvalCard = root.querySelector('.approval-card');
   const who = root.querySelector('.who');
 
   let destroyed = false;
   let editingId = null;
-  // Until GET /me says otherwise. The service enforces it either way.
-  let canWrite = true;
+  let canCreate = false;
+  let canUpdate = false;
+  let canDelete = false;
   let me = null;
 
   /** An error as the SDK worded it: data, shown as it is. */
@@ -86,8 +106,11 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
       const check = document.createElement('input');
       check.type = 'checkbox';
       check.checked = todo.done;
-      check.disabled = !canWrite;
-      check.onchange = () => update(todo.id, { done: check.checked });
+      check.disabled = !canUpdate;
+      check.onchange = async () => {
+        const updated = await update(todo.id, { done: check.checked });
+        if (!updated && !destroyed) check.checked = todo.done;
+      };
       li.append(check);
 
       if (editingId === todo.id) {
@@ -126,10 +149,10 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
         const editBtn = document.createElement('button');
         texts.text(editBtn, 'todo.edit');
         editBtn.onclick = () => { editingId = todo.id; load(); };
-        if (canWrite) li.append(editBtn);
+        if (canUpdate) li.append(editBtn);
       }
 
-      if (canWrite) {
+      if (canDelete) {
         const del = document.createElement('button');
         texts.text(del, 'todo.delete');
         del.onclick = () => remove(todo.id);
@@ -143,8 +166,11 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
   /** Who is signed in, in the words of the moment. */
   function drawWho() {
     if (!me) return;
+    const canWrite = canCreate || canUpdate || canDelete;
     // Inside the Core the user knows who they are; only say "read only".
-    who.textContent = scoped ? (me.canWrite ? '' : texts.t('todo.read-only')) : describeUser(me, texts.t);
+    who.textContent = scoped
+      ? (canWrite ? '' : texts.t('todo.read-only'))
+      : describeUser(me, texts.t, canWrite);
     who.hidden = !who.textContent;
   }
   texts.onChange(drawWho);
@@ -153,15 +179,23 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
     const found = await whoIsCalling(api);
     if (!found || destroyed) return;
     me = found;
-    canWrite = me.canWrite;
+    canCreate = hasAction(me, ACTIONS.TODO_CREATE);
+    canUpdate = hasAction(me, ACTIONS.TODO_UPDATE);
+    canDelete = hasAction(me, ACTIONS.TODO_DELETE);
     drawWho();
-    form.hidden = !canWrite;
+    form.hidden = !canCreate;
   }
 
   async function load() {
     try {
       showError('');
-      render(await api.get(listPath));
+      hidePendingApproval(approvalCard);
+      const response = await api.get(listPath);
+      if (showPendingApproval(approvalCard, response)) {
+        list.innerHTML = '';
+        return;
+      }
+      render(response);
     } catch (err) {
       showError(err.message);
     }
@@ -169,17 +203,23 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
 
   async function update(id, changes) {
     try {
-      await api.put(`/todos/${id}`, changes);
+      hidePendingApproval(approvalCard);
+      const response = await api.put(`/todos/${id}`, changes);
+      if (showPendingApproval(approvalCard, response)) return false;
       editingId = null;
       load();
+      return true;
     } catch (err) {
       showError(err.message);
+      return false;
     }
   }
 
   async function remove(id) {
     try {
-      await api.delete(`/todos/${id}`);
+      hidePendingApproval(approvalCard);
+      const response = await api.delete(`/todos/${id}`);
+      if (showPendingApproval(approvalCard, response)) return;
       load();
     } catch (err) {
       showError(err.message);
@@ -191,7 +231,11 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
     const title = input.value.trim();
     if (!title) return;
     try {
-      await api.post('/todos', scoped ? { title, computer_id: computerId } : { title });
+      hidePendingApproval(approvalCard);
+      const response = await api.post(
+        '/todos', scoped ? { title, computer_id: computerId } : { title },
+      );
+      if (showPendingApproval(approvalCard, response)) return;
       input.value = '';
       load();
     } catch (err) {

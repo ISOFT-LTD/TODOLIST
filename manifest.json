@@ -2,27 +2,28 @@
   "manifestVersion": 2,
   "id": "todo",
   "name": "Todo List",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy",
   "icon": "fa-square-check",
-
   "compatibility": {
     "mountApiVersion": 1,
-    "coreIdentity": 1,
-    "coreMin": "1.0.0"
+    "hostApiVersion": 1,
+    "sdkApiVersion": 1
   },
-
   "core": {
-    "tabKeys": ["todo"],
+    "tabKeys": [
+      "todo"
+    ],
     "roleNames": [],
-    "tokenTtlSeconds": 180
+    "tokenTtlSeconds": 180,
+    "tabLabels": {
+      "todo": "Todo List"
+    }
   },
-
   "routes": {
     "frontend": "/apps/todo/",
     "backend": "/apps/todo/api"
   },
-
   "navigation": [
     {
       "label": "todo",
@@ -38,16 +39,15 @@
           "order": 101
         },
         {
-          "label": "predefined-todo-list",
+          "label": "todo-predefined",
           "path": "/plugins/ui/todo/predefined",
-          "permission": "todo.view",
+          "permission": "todo:read",
           "subTab": "predefined",
           "order": 102
         }
       ]
     }
   ],
-
   "frontend": {
     "type": "module-federation",
     "bundler": "vite",
@@ -57,29 +57,92 @@
     "exposedModule": "./TodoApp",
     "mountFunction": "mount",
     "unmountFunction": "unmount",
-    "sdk": ["api", "i18n"],
+    "sdk": [
+      "api",
+      "i18n"
+    ],
     "shared": []
   },
-
+  "permissions": [
+    {
+      "key": "todo:read",
+      "description": "View todo items and predefined lists",
+      "tab": "todo",
+      "level": "read"
+    },
+    {
+      "key": "todo:write",
+      "description": "Create, edit and delete todo items and predefined lists",
+      "tab": "todo",
+      "level": "all"
+    }
+  ],
+  "actions": [
+    {
+      "key": "todo.view",
+      "name": "View Todo Items",
+      "description": "View personal todo items",
+      "module": "todo-list"
+    },
+    {
+      "key": "todo.create",
+      "name": "Create Todo Item",
+      "description": "Create a new todo item",
+      "module": "todo-list"
+    },
+    {
+      "key": "todo.update",
+      "name": "Update Todo Item",
+      "description": "Edit an existing todo item",
+      "module": "todo-list"
+    },
+    {
+      "key": "todo.delete",
+      "name": "Delete Todo Item",
+      "description": "Delete an existing todo item",
+      "module": "todo-list"
+    },
+    {
+      "key": "predefined.view",
+      "name": "View Predefined Todo Lists",
+      "description": "View reusable predefined todo lists",
+      "module": "todo-predefined"
+    },
+    {
+      "key": "predefined.create",
+      "name": "Create Predefined Todo List",
+      "description": "Create a reusable predefined todo list",
+      "module": "todo-predefined"
+    },
+    {
+      "key": "predefined.update",
+      "name": "Update Predefined Todo List",
+      "description": "Edit a predefined todo list",
+      "module": "todo-predefined"
+    },
+    {
+      "key": "predefined.delete",
+      "name": "Delete Predefined Todo List",
+      "description": "Delete a predefined todo list",
+      "module": "todo-predefined"
+    }
+  ],
   "contributes": [
     {
       "id": "computer-todo-action",
       "target": "computer.details.header.actions",
       "exposedModule": "./ComputerTodoAction",
-      "permission": "todo.manage",
       "order": 100
     },
     {
       "id": "computer-todo-tab",
       "target": "computer.details.tabs",
-      "exposedModule": "./ComputerTodoTab",
-      "permission": "todo.view",
       "label": "todo",
       "icon": "fa-square-check",
+      "exposedModule": "./ComputerTodoTab",
       "order": 100
     }
   ],
-
   "backend": {
     "apiRoot": "/api",
     "healthCheck": "/api/health",

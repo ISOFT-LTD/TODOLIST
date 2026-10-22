@@ -14,9 +14,12 @@ Core application is:
   identity Cobalt Core signs
 - a **frontend exposed through Module Federation**, so the ITSM React shell can
   load it at runtime without rebuilding - and a standalone page Core serves today
-- a **`manifest.json`** describing the app to Core, which installs it from there
-- **two Docker images** from this one repository: the frontend image (the UI,
-  and the app's single entry point for Core) and the backend image (the API)
+- a **`pulsar.yaml`**, the Forge manifest: the one file that says what the app
+  is. Forge installs, upgrades and rolls the app back from it, and
+  `manifest.json`, which Core reads at `/api/manifest`, is rendered from it
+- **two Docker images** from this one repository: the frontend image (the
+  gateway: the UI, and the app's single entry point for Core) and the backend
+  image (the API), both built from the repository root
 
 The browser never talks to the Todo service. It talks to Core only:
 
@@ -26,7 +29,7 @@ Browser, logged in to Cobalt (HttpOnly session cookie)
         ▼
 Cobalt Core
    • validates the session, checks the user may reach "todo" at all
-   • mints a 3-minute JWT for audience "todo" with the user's permissions
+   • mints a 3-minute JWT for audience "todo" with the user's action decisions
         │  Authorization: Bearer <jwt>, server to server
         ▼
 todo-frontend (nginx, 127.0.0.1:8080)  ── /api/ ──►  todo-backend (FastAPI)
@@ -42,9 +45,11 @@ Core's database.
 ## Install it into Cobalt Core
 
 What you get: `https://<core>:3008/apps/todo/` shows the Todo List to anyone
-logged in to Cobalt who holds the **todo** tab - Read to view, All to edit -
-and `https://<core>:3008/apps/todo/predefined` their predefined lists. Every
-user has their own.
+logged in to Cobalt who holds the **todo** tab, and
+`https://<core>:3008/apps/todo/predefined` their predefined lists. Every user
+has their own. The panel shows each page to a user holding its sub tab
+(`todo-list`, `todo-predefined`) at All, and what they may do on it is set by
+the eight [actions](#actions).
 
 **Core needs** (all on `working-merge-integration`): delegated identity
 configured (`CORE_JWT_PRIVATE_KEY_FILE` - the startup log says
@@ -85,6 +90,14 @@ docker compose up -d --build
 curl -s http://127.0.0.1:8080/api/health
 ```
 
+**Upgrading an older install?** The backend no longer runs as root, so the
+files an older image wrote on the `todo-data` volume must first belong to its
+user (uid 10001). Once, before starting the new image:
+
+```bash
+docker compose run --rm --no-deps --user 0 --entrypoint chown todo-backend -R 10001:10001 /data
+```
+
 `{"status":"ok"}` means the gateway and the backend are both up. The backend
 refuses to start at all if it cannot load Core's keys - `docker logs
 todo-backend` says why.
@@ -102,7 +115,7 @@ app's manifest from the running app and registers it:
 docker compose exec app python scripts/install_application.py --from-service todo
 ```
 
-It prints `Todo List (todo 1.3.0): registered` and a checklist. Installing
+It prints `Todo List (todo 1.5.0): registered` and a checklist. Installing
 again after an upgrade is the same command. From a browser instead, as an
 administrator: `POST /auth/applications/install` with this repository's
 `manifest.json` as the body.
@@ -141,14 +154,17 @@ translations to read.
 
 ```
 TODOLIST/
-├── manifest.json            what Core installs from (manifestVersion 2)
-├── docker-compose.yml       both services, private beside Core
+├── pulsar.yaml              the Forge manifest: the one file to edit about the app
+├── manifest.json            what Core installs from (manifestVersion 2): pulsar.yaml
+│                            rendered by scripts/render_manifest.py, never edited by hand
+├── docker-compose.yml       both services, private beside Core, without Forge
+├── .github/workflows/       release.yml (a tag, through Forge), docker-publish.yml
 ├── .env.example             every setting, documented
 ├── cobalt/                  optional saved copy of Core's public keys
 ├── dev/fake_core.py         a local stand-in for Core, for development
 ├── backend/                 FastAPI service
-│   ├── main.py              routes; every data route needs Core's identity
-│   ├── auth.py              verifies Core's JWT, names the permissions
+│   ├── main.py              routes; every data route needs Core's identity and its action
+│   ├── auth.py              verifies Core's JWT, checks each route's action
 │   ├── models.py            todos and predefined lists, scoped to their owner
 │   ├── database.py          JSON file storage, one file per kind of record
 │   ├── schemas.py
@@ -168,6 +184,7 @@ TODOLIST/
     ├── src/testing/         stand-ins for the tests only: never shipped
     ├── translations/        the plugin's key inventory - keys only, no texts:
     │                        the CSV, the workbook built from it, their tools
+    ├── Dockerfile           the gateway image: builds the UI, nginx without root on 8080
     └── nginx.conf.template  serves the UI, hands /api/ to the backend
 ```
 
@@ -186,11 +203,16 @@ python dev/fake_core.py
 ```
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend && pnpm install && pnpm dev
 ```
 
-Open `http://localhost:5173`. `DEV_ACCESS=read` makes you a read-only user,
-`DEV_USER_ID` and `DEV_USERNAME` change who you are. Stop it with Ctrl+C.
+The frontend uses pnpm 10 (`npm install --global pnpm@10.34.5`), because
+Forge's release workflow installs with `pnpm install --frozen-lockfile`.
+
+Open `http://localhost:5173`. `DEV_ACCESS=read` makes you a read-only user
+(only the two view actions), `DEV_ACCESS=approval` sends every change for
+approval, so you see the pending card; `DEV_USER_ID` and `DEV_USERNAME` change
+who you are. Stop it with Ctrl+C.
 
 Tests:
 
@@ -199,39 +221,95 @@ python -m pytest backend/tests
 ```
 
 ```bash
-cd frontend && npm test
+cd frontend && pnpm test && pnpm build
 ```
+
+One backend test checks that `manifest.json` is exactly `pulsar.yaml` rendered.
+It needs forge-sdk, which is not on a public index yet, and is skipped without
+it. Rendering `backend.actions` needs a forge-sdk that knows actions (Forge 1.0
+with ADR-06 revision 3). With a Forge checkout beside this one:
+
+```bash
+pip install -e ../forge/packages/forge-sdk
+```
+
+```bash
+python scripts/render_manifest.py
+```
+
+Run the second command after every change to `pulsar.yaml`. Check the bundle
+with `forge validate .` from the same checkout.
 
 After adding or removing a key, update the key inventory
 (`frontend/translations/todo-translation-keys.csv`) and rebuild its workbook;
 a test fails until the code, the inventory and the workbook agree:
 
 ```bash
-cd frontend && npm run translation-keys
+cd frontend && pnpm translation-keys
 ```
 
 ## API
 
 All under the backend's `/api`; through Core, under `/apps/todo/api`.
 
-| Method | Path | Needs |
+| Method | Path | Action |
 |---|---|---|
-| GET | `/api/todos` | `todo.todo.read` - this user's todos, newest first; `?computer_id=N` for one computer's |
-| POST | `/api/todos` | `todo.todo.all` - `{ "title", "computer_id"? }` |
-| PUT | `/api/todos/{id}` | `todo.todo.all` - title and/or done |
-| DELETE | `/api/todos/{id}` | `todo.todo.all` |
-| GET | `/api/predefined-lists` | `todo.todo.read` - this user's predefined lists, newest first |
-| POST | `/api/predefined-lists` | `todo.todo.all` - `{ "name", "items": [...] }` |
-| PUT | `/api/predefined-lists/{id}` | `todo.todo.all` - name and/or items |
-| DELETE | `/api/predefined-lists/{id}` | `todo.todo.all` |
-| GET | `/api/me` | any valid token - who is calling, and `can_write` |
+| GET | `/api/todos` | `todo.view` - this user's todos, newest first; `?computer_id=N` for one computer's |
+| POST | `/api/todos` | `todo.create` - `{ "title", "computer_id"? }` |
+| PUT | `/api/todos/{id}` | `todo.update` - title and/or done |
+| DELETE | `/api/todos/{id}` | `todo.delete` |
+| GET | `/api/predefined-lists` | `predefined.view` - this user's predefined lists, newest first |
+| POST | `/api/predefined-lists` | `predefined.create` - `{ "name", "items": [...] }` |
+| PUT | `/api/predefined-lists/{id}` | `predefined.update` - name and/or items |
+| DELETE | `/api/predefined-lists/{id}` | `predefined.delete` |
+| GET | `/api/me` | any valid token - who is calling, and Core's decision on each action |
 | GET | `/api/health` | open |
 | GET | `/api/manifest` | open - Core installs from it |
 | GET | `/api/openapi.json` | open |
 
-Core names permissions `<app>.<tab>.<action>`: Read on the `todo` tab is
-`todo.todo.read`, All adds `todo.todo.all`. Another user's todo or list answers
-404, not 403, so ids reveal nothing.
+Another user's todo or list answers 404, not 403, so ids reveal nothing.
+
+### Actions
+
+The tabs (`todo`, and the pages' sub tabs `todo-list` and `todo-predefined`)
+decide who reaches the app and sees its pages. Inside, every data route checks
+one **action**. `pulsar.yaml` declares the eight under `backend.actions`, each
+on the sub tab of the page it acts on (`todo.*` on `todo-list`,
+`predefined.*` on `todo-predefined`), so the role editor lists them under that
+page. Core stores them as `todo.<key>` (`todo.todo.create`), and an
+administrator sets each one per role to Allow, Deny or Require approval.
+
+Core's token carries the caller's decision on each, keyed without the app's
+id: `"action_permissions": {"todo.create": "ALLOW", ...}`. The backend reads it
+from the verified claims (`auth.py`; the vendored `cobalt_identity` is not
+edited) and, before the route does anything:
+
+| Decision | Answer |
+|---|---|
+| `ALLOW` | the route runs |
+| `REQUIRE_APPROVAL` | `202`, headers `X-Cobalt-Approval-Required: true` and `X-Cobalt-Approval-Action: <key>`, body `{"detail": {"status": "REQUIRE_APPROVAL", "action_key": "<key>", "message": "Approval required"}}` |
+| `DENY`, none, or anything else | `403` `{"detail": {"message": "Action denied", "action_key": "<key>", "status": "DENY"}}` |
+
+Core turns the `202` into an approval request and answers the browser
+`202 {"detail": {"status": "PENDING", "approval_request_id": ..., ...}}`; the
+pages and the Add Todo action show it in an approval card. Once an
+administrator approves, Core sends the same call again with the action
+`ALLOW` and the claim `approval_request_id`. A create keys its record by that
+id, so a second delivery of the same approval returns the first record
+instead of adding another; an update sets the same values again and a delete
+answers `404` the second time.
+
+`GET /api/me` returns `actions` (the allowed ones) and `action_permissions`
+(every decision). The UI offers a control for `ALLOW` and `REQUIRE_APPROVAL`
+and hides it otherwise (`frontend/src/actions.js`); `can_read` and
+`can_write` stay for an older UI. One set of names is used everywhere:
+`backend/auth.py`, `frontend/src/actions.js`, `dev/fake_core.py` and the
+tests, and `backend/tests/test_actions.py` fails when they drift.
+
+Granting: Cobalt_Api `merge-08-10` gives a newly installed app's actions to
+nobody (SuperUser gets them at Core's next restart). An administrator sets
+them per role in the role editor; the user then signs out and in again, because
+the panel reads grants at login.
 
 A predefined list is a reusable template - a name and the todo titles it would
 create, such as *New Employee Setup: create account, assign laptop, configure
@@ -256,35 +334,34 @@ manifest cannot redirect Core's traffic. The `frontend` section is for the ITSM
 shell.
 
 **`navigation`** uses the grouped contract: one group, labelled by the key
-`to-do`, with two children that both belong to this one plugin:
+`todo` and linking to the To do List, with two children that both belong to
+this one plugin:
 
-| Label | Path | Permission |
-|---|---|---|
-| To do List | `/plugins/ui/todo` | `todo:read` |
-| Predefined to do list | `/plugins/ui/todo/predefined` | `todo:read` |
+| Label | Path | Permission | Sub tab |
+|---|---|---|---|
+| `todo-list` | `/plugins/ui/todo` | `todo:read` | `list` |
+| `todo-predefined` | `/plugins/ui/todo/predefined` | `todo:read` | `predefined` |
 
 Both load the same federated module; the sub-path below the plugin's root
-(`''` or `/predefined`) tells it which page to render (see below).
-
-The Core draws every label and translates it. The group's label is written
-as a key, `to-do`, and is in the key inventory. The two page labels are
-**still words, and that is not settled**: in the Core's contract a page's
-`label` is one field with two uses. See
-[Page labels](#page-labels-blocked-by-the-cores-contract).
+(`''` or `/predefined`) tells it which page to render (see below). The Core
+draws every label and translates it; see
+[Page labels](#page-labels-and-the-panels-page-gate).
 
 **`contributes`** puts this plugin into Core pages, at the extension targets
-the Core defines. The Core decides where each renders, filters them by the
-user's permissions, orders, loads, mounts, updates and unmounts them:
+the Core defines. The Core decides where each renders, orders, loads, mounts,
+updates and unmounts them:
 
-| id | Target | Exposed module | Permission | Tab |
-|---|---|---|---|---|
-| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | `todo.todo.all` | - |
-| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | `todo.todo.read` | label `to-do` (a key), `fa-square-check` |
+| id | Target | Exposed module | Tab |
+|---|---|---|---|
+| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | - |
+| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | label `todo` (a key), `fa-square-check` |
 
-Contribution permissions use the Core's own names, `<app>.<tab>.read|all`,
-not the navigation's `todo:read` spelling. The header action adds todos, so
-only users who may add them see it; the tab is shown to readers, without the
-add form when they cannot write. The tab's label is a key: the Core draws
+A contribution carries no permission: the panel shows it to everyone who
+holds the Core's computers tab (Forge ADR-09), and the Forge manifest has no
+field for one. So the header action hides itself: it stays hidden until
+`GET /me` says the user may add todos. The tab shows the list to readers,
+without the add form when they cannot write; a user with no access to the app
+at all sees the API's refusal there. The tab's label is a key: the Core draws
 the tab and translates it.
 
 ### Module Federation remote
@@ -434,11 +511,11 @@ fails on anything that is not a key. It is a text file so that a review can
 read it and a diff can show it.
 [`todo-translation-keys.xlsx`](frontend/translations/todo-translation-keys.xlsx)
 is the same keys in the one column of a sheet, built from the CSV by
-`npm run translation-keys` with no dependency, for whoever prepares the rows
+`pnpm translation-keys` with no dependency, for whoever prepares the rows
 of the translation database. Neither is a catalog. Nothing the plugin ships
 imports them.
 
-`npm test` fails when:
+`pnpm test` fails when:
 
 - a key the code or the manifest asks for is missing from the inventory, or
   the inventory holds a key nothing asks for;
@@ -460,48 +537,34 @@ a key with the key itself, marked with the language: `⟦en:todo.add⟧`, and
 `⟦pt:todo.add⟧` after a change.
 
 **Keys.** The plugin's own are `todo.<key>`. It reads no key of the Core's.
-The label the Core draws for the group and for the Computer Details tab is
-the key `to-do`.
+The labels the Core draws are keys too: `todo` for the group and for the
+Computer Details tab, `todo-list` and `todo-predefined` for the two
+pages.
 
-> `todo.*` and `to-do` do not start with `plugin.`, which is the namespace
-> the Core's documents reserve for plugins (`plugin.<id>.<key>`); by those
-> documents a key without that prefix is a key of the Core. Whoever adds the
-> rows must check that none of these keys is already in use, above all
-> `to-do`.
+> `todo`, `todo-list`, `todo-predefined` and `todo.*` do not start with
+> `plugin.`, which is the namespace the Core's documents reserve for plugins
+> (`plugin.<id>.<key>`); by those documents a key without that prefix is a
+> key of the Core. Whoever adds the rows must check that none of these keys
+> is already in use, above all `todo`.
 
-#### Page labels: blocked by the Core's contract
+#### Page labels and the panel's page gate
 
-The two page labels in `manifest.json` are still English words, and this
-repository cannot change that on its own. In the Core, the `label` of a
-group's child is one field with two uses that cannot be separated:
+Each page names its own `subTab`, so Core gives it a sub tab of its own,
+`todo-<subTab>`: `todo-list` and `todo-predefined`. The panel opens a page
+only for a user who holds, at level All, the tab named exactly like the page's
+label, and draws the label's text by that same key. So each page's label is
+its sub tab:
 
-```
-navigation child { path, label }
-        │
-        ├─→ tabName = label, exactly as written     (api/fetchPlugins.ts, pageOfGroup)
-        │     └─→ looked up in the user's allowed_tabs by exact tab_name
-        │           └─→ sidebar entry shown / hidden, route open / 403
-        │
-        └─→ key = label in lower case, spaces as hyphens   (sidebarTranslationKey)
-              └─→ the application's translations  →  the text on screen
-```
-
-| Label | It is the tab | The Core translates it by |
+| Label | Core's sub tab | The panel's gate looks for |
 |---|---|---|
-| `To do List` | `To do List` | `to-do-list` |
-| `Predefined to do list` | `Predefined to do list` | `predefined-to-do-list` |
-| `todo.list` (a key) | `todo.list` | `todo.list` |
+| `todo-list` | `todo-list` | `todo-list` |
+| `todo-predefined` | `todo-predefined` | `todo-predefined` |
 
-So the text on screen is already translated, by a key the Core derives. But
-writing a key as the label renames the tab: the page is then granted only to
-users whose `allowed_tabs` holds that exact name, and the names of the tabs
-are the Core's - its permission data - not this plugin's. The Core's own
-notes say its login data names these tabs `todo-list` and `todo-predefined`,
-which is neither of the labels above. What the Core's backend sends as the
-label of each page could not be checked from here. Until it is decided
-there - a label that is a key *and* the tab's name, or a field of its own
-for the tab - the labels stay as they are, their keys are not in the
-inventory, and the test suite carries an open `todo` for it.
+Until 1.5.0 the second label was `predefined-todo-list`, a tab nobody holds,
+so the panel hid the Predefined page from everyone. The translation rows for
+`predefined-todo-list` move to `todo-predefined`.
+`frontend/src/translation-inventory.test.js` fails when a label and its sub tab
+disagree.
 
 ## Configuration
 
@@ -512,20 +575,45 @@ inventory, and the test suite carries an open `todo` for it.
 | `COBALT_ISSUER` | `cobalt-core` | Backend: must equal Core's `CORE_JWT_ISSUER` |
 | `COBALT_TENANT_ID` | any | Backend: must equal Core's `CORE_TENANT_ID` |
 | `COBALT_AUDIENCE` | `todo` | Backend: this app's key in Core |
-| `COBALT_PERMISSION_TAB` | `todo` | Backend: the Core tab its permissions hang off |
 | `CORE_HOSTNAME` | - | Compose: Core's name, mapped to this machine in the backend container |
 | `TODO_BIND_ADDRESS` / `TODO_PORT` | `127.0.0.1` / `8080` | Compose: where Core reaches the gateway |
 | `TODO_DATA_FILE` | `backend/todos.json` (Docker: `/data/todos.json`) | Backend storage: todos |
 | `TODO_PREDEFINED_FILE` | `backend/predefined_lists.json` (Docker: `/data/predefined_lists.json`) | Backend storage: predefined lists |
-| `MANIFEST_PATH` | `manifest.json` at the repo root | `/api/manifest` |
-| `VITE_API_TARGET` | `http://127.0.0.1:8001` | `npm run dev` proxy (the fake Core) |
+| `MANIFEST_PATH` | `manifest.json` at the repo root (Docker: `/app/manifest.json`, in the image) | `/api/manifest` |
+| `TODO_BACKEND_URL` | `http://backend:8000` | Gateway: where nginx hands `/api/` |
+| `VITE_API_TARGET` | `http://127.0.0.1:8001` | `pnpm dev` proxy (the fake Core) |
 
-## Published images (GHCR)
+## Releases (Forge)
+
+A release is a tag. Set the version in `pulsar.yaml` (`metadata.version` and
+both services' `tag`), run `python scripts/render_manifest.py`, commit, then
+tag `v<version>`. [`release.yml`](.github/workflows/release.yml) checks the tag
+against `pulsar.yaml` and calls Forge's shared workflow
+(`ISOFT-LTD/forge/.github/workflows/app-release.yml@main`). That builds both
+images from the repository root, scans them, waits for the Release Manager's
+approval in the `production` environment, signs the release record and
+publishes `ghcr.io/itec-git/apps/todo-backend`, `ghcr.io/itec-git/apps/todo-frontend`
+and `ghcr.io/itec-git/todo/release:<version>`. A server then installs it with
+`forge install`. The images build the same way by hand:
+
+```bash
+docker build -f backend/Dockerfile -t ghcr.io/itec-git/apps/todo-backend:1.5.0 .
+```
+
+```bash
+docker build -f frontend/Dockerfile -t ghcr.io/itec-git/apps/todo-frontend:1.5.0 .
+```
+
+Under Forge the app runs as the compose project `forge-todo`, with a volume of
+its own (`forge-todo_todo-data`). Moving a server from `docker-compose.yml` to
+Forge therefore means: copy `todos.json` and `predefined_lists.json` from the
+old volume into the new one, owned by uid 10001; stop this compose project; and
+remove `COBALT_APP_URL_TODO` from Core's environment, because it wins over the
+address `forge install` registers.
 
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
-builds both images and pushes them to GitHub Container Registry on a push to
-`main` (`:main`, `:sha-<short>`) or a `v1.2.3` tag (`:1.2.3`, `:1.2`, `:latest`).
-Pull requests build without pushing. New GHCR packages are private by default.
+still builds both images on every pull request and pushes the `main` branch's
+to GHCR (`:main`, `:sha-<short>`) for testing. It no longer runs on tags.
 
 ## Known limitations
 

@@ -1,13 +1,15 @@
-# Builds the backend and frontend images and publishes them to GHCR.
+# Builds the backend and frontend images on every change, and publishes the main branch's to GHCR
+# for testing.
 #   - push to main      -> :main, :sha-<short>
-#   - tag v1.2.3        -> :1.2.3, :1.2, :latest, :sha-<short>
 #   - pull request      -> build only, nothing is pushed
+#
+# A release is not made here. A tag v1.2.3 runs release.yml, which builds, scans, signs and
+# publishes the release Forge installs, as ghcr.io/itec-git/apps/todo-<service>:1.2.3.
 name: Docker images
 
 on:
   push:
     branches: [main]
-    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -28,9 +30,9 @@ jobs:
       matrix:
         include:
           - image: todo-backend
-            context: ./backend
+            dockerfile: backend/Dockerfile
           - image: todo-frontend
-            context: ./frontend
+            dockerfile: frontend/Dockerfile
 
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +55,6 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha
           labels: |
             org.opencontainers.image.title=${{ matrix.image }}
@@ -62,7 +62,9 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
+          # Both images build from the repository root, which holds pulsar.yaml.
+          context: .
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

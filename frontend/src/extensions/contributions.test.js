@@ -6,14 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as actionModule from './computer-todo-action.js';
 import * as tabModule from './computer-todo-tab.js';
 import { en, fakeI18n } from '../testing/i18n.js';
+import { meOf } from '../testing/sdk.js';
 
 /** The Core's SDK v1 over an in-memory todo API. */
-function fakeSdk({ canWrite = true } = {}) {
+function fakeSdk({ canWrite = true, decisions = {} } = {}) {
   const todos = [];
   let nextId = 1;
   const api = {
     get: vi.fn(async (path) => {
-      if (path === '/me') return { username: 'alice', can_write: canWrite };
+      if (path === '/me') return meOf({ canWrite, decisions });
       const url = new URL(path, 'http://api.invalid');
       const computer = url.searchParams.get('computer_id');
       return todos
@@ -192,11 +193,42 @@ describe('ComputerTodoAction', () => {
     return settle();
   }
 
-  it('is one compact button until clicked', () => {
+  it('is one compact button until clicked', async () => {
     const handle = actionModule.mount(host, { computerId: 42 }, fakeSdk());
+    await settle();
     const button = host.shadowRoot.querySelector('.open');
+    expect(button.hidden).toBe(false);
     expect(button.textContent.trim()).toBe(en('todo.add-todo'));
     expect(host.shadowRoot.querySelector('dialog').open).toBe(false);
+    handle.unmount();
+  });
+
+  // The panel shows a contribution to everyone with the computers tab (ADR-09),
+  // so the button hides itself from a user who may not add todos.
+  it('stays hidden until GET /me says the user may write', async () => {
+    const sdk = fakeSdk();
+    const handle = actionModule.mount(host, { computerId: 42 }, sdk);
+    expect(host.shadowRoot.querySelector('.open').hidden).toBe(true);
+
+    await settle();
+    expect(sdk.api.get).toHaveBeenCalledWith('/me');
+    expect(host.shadowRoot.querySelector('.open').hidden).toBe(false);
+    handle.unmount();
+  });
+
+  it('stays hidden from a read-only user', async () => {
+    const handle = actionModule.mount(host, { computerId: 42 }, fakeSdk({ canWrite: false }));
+    await settle();
+    expect(host.shadowRoot.querySelector('.open').hidden).toBe(true);
+    handle.unmount();
+  });
+
+  it('stays hidden when GET /me fails', async () => {
+    const sdk = fakeSdk();
+    sdk.api.get.mockRejectedValueOnce(new Error('403'));
+    const handle = actionModule.mount(host, { computerId: 42 }, sdk);
+    await settle();
+    expect(host.shadowRoot.querySelector('.open').hidden).toBe(true);
     handle.unmount();
   });
 
