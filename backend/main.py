@@ -23,6 +23,7 @@ call this service directly.
     POST   /api/predefined-lists        create                  predefined.create
     PUT    /api/predefined-lists/{id}   update name/items       predefined.update
     DELETE /api/predefined-lists/{id}   delete                  predefined.delete
+    GET    /api/exports/todos           export data for Core    todo.view
     GET    /api/me             who Core says is calling        any valid token
     GET    /api/health         liveness                        open
     GET    /api/manifest       this app's manifest, for Core   open
@@ -101,9 +102,17 @@ def list_todos(
 
 
 @todos_router.post("", response_model=TodoOut, status_code=status.HTTP_201_CREATED)
-def create_todo(todo: TodoCreate, who=Depends(require_delegated_action(ADD_TODO))):
+def create_todo(
+    todo: TodoCreate,
+    response: Response,
+    who=Depends(require_delegated_action(ADD_TODO)),
+):
     """Create a new todo for this user, about a computer when it names one."""
-    return models.create_todo(*owner_of(who), todo.title, computer_id=todo.computer_id)
+    created = models.create_todo(
+        *owner_of(who), todo.title, computer_id=todo.computer_id
+    )
+    response.headers["X-Cobalt-Admin-Notification"] = "todo_created"
+    return created
 
 
 @todos_router.put("/{todo_id}", response_model=TodoOut)
@@ -128,6 +137,28 @@ def delete_todo(todo_id: int, who=Depends(require_delegated_action(DELETE_TODO))
 
 
 app.include_router(todos_router)
+
+# ---------------------------------------------------------------------------
+# Exports - Core turns this bounded data document into CSV/XLSX on its worker
+# ---------------------------------------------------------------------------
+
+exports_router = APIRouter(prefix="/api/exports", tags=["Exports"])
+
+
+@exports_router.get("/todos")
+def export_todos(who=Depends(require_delegated_action(READ_TODO))):
+    todos = models.list_todos(*owner_of(who))
+    return {
+        "filename": "todos",
+        "columns": ["id", "title", "done", "computer_id"],
+        "rows": [
+            [todo.id, todo.title, todo.done, todo.computer_id]
+            for todo in todos
+        ],
+    }
+
+
+app.include_router(exports_router)
 
 # ---------------------------------------------------------------------------
 # Predefined lists - reusable templates, kept with the same identity and
