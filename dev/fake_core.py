@@ -22,9 +22,7 @@ Who you are, from the environment:
 
     DEV_USER_ID      the user id (the token's sub)            [1]
     DEV_USERNAME     the display name                         [developer]
-    DEV_ACCESS       write: every action allowed               [write]
-                     read: only todo.view and predefined.view
-                     approval: views allowed, every change needs approval
+    DEV_ACCESS       write (all actions) or read-only actions [write]
 """
 
 import itertools
@@ -58,45 +56,23 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 backend = httpx.AsyncClient(base_url=f"http://127.0.0.1:{BACKEND_PORT}", timeout=30)
 
 
-# The actions pulsar.yaml declares, by the names the token carries them under.
-VIEWS = ("todo.view", "predefined.view")
-CHANGES = (
-    "todo.create", "todo.update", "todo.delete",
-    "predefined.create", "predefined.update", "predefined.delete",
-)
-CHANGE_DECISION = {"write": "ALLOW", "approval": "REQUIRE_APPROVAL"}.get(ACCESS, "DENY")
-approval_ids = itertools.count(1)
-
-
-def _action_permissions():
-    """Your decision on each action, as Core's token carries it."""
-    return {
-        **{key: "ALLOW" for key in VIEWS},
-        **{key: CHANGE_DECISION for key in CHANGES},
-    }
-
-
-def _pending(upstream):
-    """Core's answer to the browser for the backend's approval challenge, or None."""
-    action = upstream.headers.get("x-cobalt-approval-action")
-    if upstream.status_code != 202 or upstream.headers.get("x-cobalt-approval-required") != "true":
-        return None
-    body = {"detail": {
-        "status": "PENDING",
-        "approval_request_id": next(approval_ids),
-        "action_key": f"{APP_KEY}.{action}",
-        "message": "Approval request created",
-    }}
-    return Response(json.dumps(body), status_code=202, media_type="application/json")
+def _actions():
+    read = ["todo.read_todo", "todo.read_predefined_list"]
+    if ACCESS != "write":
+        return read
+    return read + [
+        "todo.add_todo",
+        "todo.update_todo",
+        "todo.delete_todo",
+        "todo.add_predefined_list",
+        "todo.update_predefined_list",
+        "todo.delete_predefined_list",
+    ]
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def forward(path: str, request: Request):
-    decisions = _action_permissions()
-    token = issuer.mint(
-        USER_ID, APP_KEY, username=USERNAME, action_permissions=decisions,
-        actions=sorted(key for key, decision in decisions.items() if decision == "ALLOW"),
-    )
+    token = issuer.mint(USER_ID, APP_KEY, actions=_actions(), username=USERNAME)
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": request.headers.get("accept", "application/json"),

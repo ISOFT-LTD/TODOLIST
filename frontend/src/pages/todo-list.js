@@ -5,7 +5,8 @@
  *   const teardown = mountTodoList(shadowRoot, { api, i18n, computerId: 42 });
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
- * place) and talks to the API only through `api` (see todo-app.js). Its
+ * place) and talks to the Todo API through `api` (see todo-app.js). The
+ * standalone export button uses the Core origin that served this module. Its
  * words come from `i18n`, the application's translations, through the
  * plugin's translation helper: a change of language redraws them in place.
  *
@@ -23,7 +24,10 @@ import { appendHtml, describeUser, whoIsCalling } from './shared.js';
 
 const TEMPLATE = `
   <main class="todo">
-    <h1 data-i18n="todo.title"></h1>
+    <div class="page-heading">
+      <h1 data-i18n="todo.title"></h1>
+      <button type="button" class="export" data-i18n="todo.export"></button>
+    </div>
     <p class="who" hidden></p>
     <form class="add-form" hidden>
       <input type="text" class="new-title" data-i18n-placeholder="todo.new-todo-placeholder" autocomplete="off" required>
@@ -41,6 +45,24 @@ const TEMPLATE = `
     <p class="error" hidden></p>
   </main>
 `;
+
+const CORE_ROOT = `${new URL(import.meta.url).origin}/`;
+const coreUrl = (path) => new URL(String(path).replace(/^\/+/, ''), CORE_ROOT);
+
+async function coreJson(path, options = {}) {
+  const response = await fetch(coreUrl(path), {
+    credentials: 'include',
+    ...options,
+    headers: { Accept: 'application/json', ...(options.headers || {}) },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(typeof body.detail === 'string' ? body.detail : response.statusText);
+  }
+  return response.json();
+}
+
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const EMBEDDED_TEMPLATE = `
   <main class="todo embedded">
@@ -74,6 +96,7 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
   const errorBox = root.querySelector('.error');
   const approvalCard = root.querySelector('.approval-card');
   const who = root.querySelector('.who');
+  const exportButton = root.querySelector('.export');
 
   let destroyed = false;
   let editingId = null;
@@ -81,6 +104,42 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
   let canUpdate = false;
   let canDelete = false;
   let me = null;
+
+  if (exportButton) {
+    exportButton.onclick = async () => {
+      exportButton.disabled = true;
+      texts.text(exportButton, 'todo.exporting');
+      showError('');
+      try {
+        const task = await coreJson('/export/plugins/todo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: '/api/exports/todos', format: 'xlsx' }),
+        });
+        while (!destroyed) {
+          const result = await coreJson(`/export/check-export-status/${encodeURIComponent(task.task_id)}`);
+          if (result.status === 'ready' && result.file_url) {
+            const link = document.createElement('a');
+            link.href = coreUrl(result.file_url);
+            link.hidden = true;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            break;
+          }
+          if (result.status === 'error') throw new Error(texts.t('todo.export-failed'));
+          await wait(1000);
+        }
+      } catch (err) {
+        if (!destroyed) showError(err.message);
+      } finally {
+        if (!destroyed) {
+          exportButton.disabled = false;
+          texts.text(exportButton, 'todo.export');
+        }
+      }
+    };
+  }
 
   /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {

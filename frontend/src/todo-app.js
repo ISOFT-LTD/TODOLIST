@@ -4,10 +4,11 @@
  * Framework-agnostic on purpose: the shell calls mount() from a React effect,
  * so the plugin never bundles or shares React.
  *
- * The plugin reaches the outside world only through the SDK it is given. It
- * never imports Core code and knows nothing about URLs, sessions or transport:
- * in the ITSM shell, Core's SDK routes sdk.api through Core; standalone, the
- * page's own SDK (core-sdk.js) calls through Core relative to the page.
+ * Todo data reaches the outside world only through the SDK it is given. The
+ * standalone list's export control calls the Core origin that served its
+ * module, so it still handles no token or configured host. In the ITSM shell,
+ * Core's SDK routes sdk.api through Core; standalone, the page's own SDK
+ * (core-sdk.js) calls through Core relative to the page.
  *
  *   const unmount = mount(element, { sdk, path });
  *

@@ -29,7 +29,7 @@ Browser, logged in to Cobalt (HttpOnly session cookie)
         ▼
 Cobalt Core
    • validates the session, checks the user may reach "todo" at all
-   • mints a 3-minute JWT for audience "todo" with the user's action decisions
+   • mints a 3-minute JWT for audience "todo" with the user's actions
         │  Authorization: Bearer <jwt>, server to server
         ▼
 todo-frontend (nginx, 127.0.0.1:8080)  ── /api/ ──►  todo-backend (FastAPI)
@@ -45,11 +45,9 @@ Core's database.
 ## Install it into Cobalt Core
 
 What you get: `https://<core>:3008/apps/todo/` shows the Todo List to anyone
-logged in to Cobalt who holds the **todo** tab, and
-`https://<core>:3008/apps/todo/predefined` their predefined lists. Every user
-has their own. The panel shows each page to a user holding its sub tab
-(`todo-list`, `todo-predefined`) at All, and what they may do on it is set by
-the eight [actions](#actions).
+logged in to Cobalt who has the Todo actions assigned for the operations they use -
+and `https://<core>:3008/apps/todo/predefined` their predefined lists. Every
+user has their own.
 
 **Core needs** (all on `working-merge-integration`): delegated identity
 configured (`CORE_JWT_PRIVATE_KEY_FILE` - the startup log says
@@ -163,8 +161,8 @@ TODOLIST/
 ├── cobalt/                  optional saved copy of Core's public keys
 ├── dev/fake_core.py         a local stand-in for Core, for development
 ├── backend/                 FastAPI service
-│   ├── main.py              routes; every data route needs Core's identity and its action
-│   ├── auth.py              verifies Core's JWT, checks each route's action
+│   ├── main.py              routes; every data route needs Core's identity
+│   ├── auth.py              verifies Core's JWT, checks delegated actions
 │   ├── models.py            todos and predefined lists, scoped to their owner
 │   ├── database.py          JSON file storage, one file per kind of record
 │   ├── schemas.py
@@ -254,62 +252,22 @@ All under the backend's `/api`; through Core, under `/apps/todo/api`.
 
 | Method | Path | Action |
 |---|---|---|
-| GET | `/api/todos` | `todo.view` - this user's todos, newest first; `?computer_id=N` for one computer's |
-| POST | `/api/todos` | `todo.create` - `{ "title", "computer_id"? }` |
-| PUT | `/api/todos/{id}` | `todo.update` - title and/or done |
-| DELETE | `/api/todos/{id}` | `todo.delete` |
-| GET | `/api/predefined-lists` | `predefined.view` - this user's predefined lists, newest first |
-| POST | `/api/predefined-lists` | `predefined.create` - `{ "name", "items": [...] }` |
-| PUT | `/api/predefined-lists/{id}` | `predefined.update` - name and/or items |
-| DELETE | `/api/predefined-lists/{id}` | `predefined.delete` |
-| GET | `/api/me` | any valid token - who is calling, and Core's decision on each action |
+| GET | `/api/todos` | `todo.read_todo` - this user's todos, newest first; `?computer_id=N` for one computer's |
+| POST | `/api/todos` | `todo.add_todo` - `{ "title", "computer_id"? }` |
+| PUT | `/api/todos/{id}` | `todo.update_todo` - title and/or done |
+| DELETE | `/api/todos/{id}` | `todo.delete_todo` |
+| GET | `/api/predefined-lists` | `todo.read_predefined_list` - this user's predefined lists, newest first |
+| POST | `/api/predefined-lists` | `todo.add_predefined_list` - `{ "name", "items": [...] }` |
+| PUT | `/api/predefined-lists/{id}` | `todo.update_predefined_list` - name and/or items |
+| DELETE | `/api/predefined-lists/{id}` | `todo.delete_predefined_list` |
+| GET | `/api/me` | any valid token - who is calling and their delegated actions |
 | GET | `/api/health` | open |
 | GET | `/api/manifest` | open - Core installs from it |
 | GET | `/api/openapi.json` | open |
 
-Another user's todo or list answers 404, not 403, so ids reveal nothing.
-
-### Actions
-
-The tabs (`todo`, and the pages' sub tabs `todo-list` and `todo-predefined`)
-decide who reaches the app and sees its pages. Inside, every data route checks
-one **action**. `pulsar.yaml` declares the eight under `backend.actions`, each
-on the sub tab of the page it acts on (`todo.*` on `todo-list`,
-`predefined.*` on `todo-predefined`), so the role editor lists them under that
-page. Core stores them as `todo.<key>` (`todo.todo.create`), and an
-administrator sets each one per role to Allow, Deny or Require approval.
-
-Core's token carries the caller's decision on each, keyed without the app's
-id: `"action_permissions": {"todo.create": "ALLOW", ...}`. The backend reads it
-from the verified claims (`auth.py`; the vendored `cobalt_identity` is not
-edited) and, before the route does anything:
-
-| Decision | Answer |
-|---|---|
-| `ALLOW` | the route runs |
-| `REQUIRE_APPROVAL` | `202`, headers `X-Cobalt-Approval-Required: true` and `X-Cobalt-Approval-Action: <key>`, body `{"detail": {"status": "REQUIRE_APPROVAL", "action_key": "<key>", "message": "Approval required"}}` |
-| `DENY`, none, or anything else | `403` `{"detail": {"message": "Action denied", "action_key": "<key>", "status": "DENY"}}` |
-
-Core turns the `202` into an approval request and answers the browser
-`202 {"detail": {"status": "PENDING", "approval_request_id": ..., ...}}`; the
-pages and the Add Todo action show it in an approval card. Once an
-administrator approves, Core sends the same call again with the action
-`ALLOW` and the claim `approval_request_id`. A create keys its record by that
-id, so a second delivery of the same approval returns the first record
-instead of adding another; an update sets the same values again and a delete
-answers `404` the second time.
-
-`GET /api/me` returns `actions` (the allowed ones) and `action_permissions`
-(every decision). The UI offers a control for `ALLOW` and `REQUIRE_APPROVAL`
-and hides it otherwise (`frontend/src/actions.js`); `can_read` and
-`can_write` stay for an older UI. One set of names is used everywhere:
-`backend/auth.py`, `frontend/src/actions.js`, `dev/fake_core.py` and the
-tests, and `backend/tests/test_actions.py` fails when they drift.
-
-Granting: Cobalt_Api `merge-08-10` gives a newly installed app's actions to
-nobody (SuperUser gets them at Core's next restart). An administrator sets
-them per role in the role editor; the user then signs out and in again, because
-the panel reads grants at login.
+Core delegates the action keys declared by the plugin manifest in each signed
+JWT. Every data route requires its own action. Another user's todo or list
+answers 404, not 403, so ids reveal nothing.
 
 A predefined list is a reusable template - a name and the todo titles it would
 create, such as *New Employee Setup: create account, assign laptop, configure
@@ -325,22 +283,21 @@ computer when created with one; updating a todo keeps it.
 
 ### manifest.json
 
-Core reads `id`, `name`, `description`, `version` and the **`core`** section -
-the permission tabs the app consumes (`todo`), the role names it may be told
-(none) and its token lifetime (180 s) - and checks that every entry in
-`permissions` is Read or All on one of those tabs. Where the app runs is never
-in the manifest: Core takes it from `COBALT_APP_URL_TODO`, so shipping a
-manifest cannot redirect Core's traffic. The `frontend` section is for the ITSM
-shell.
+Core reads `id`, `name`, `description`, `version`, the **`core`** section, and
+the plugin's `actions` catalog. The catalog is an array of action-key strings;
+Core can grant those keys and include the granted set in the delegated JWT.
+Where the app runs is never in the manifest: Core
+takes it from `COBALT_APP_URL_TODO`, so shipping a manifest cannot redirect
+Core's traffic. The `frontend` section is for the ITSM shell.
 
 **`navigation`** uses the grouped contract: one group, labelled by the key
 `todo` and linking to the To do List, with two children that both belong to
 this one plugin:
 
-| Label | Path | Permission | Sub tab |
-|---|---|---|---|
-| `todo-list` | `/plugins/ui/todo` | `todo:read` | `list` |
-| `todo-predefined` | `/plugins/ui/todo/predefined` | `todo:read` | `predefined` |
+| Label | Path | Action |
+|---|---|---|
+| To do List | `/plugins/ui/todo` | `todo.read_todo` |
+| Predefined to do list | `/plugins/ui/todo/predefined` | `todo.read_predefined_list` |
 
 Both load the same federated module; the sub-path below the plugin's root
 (`''` or `/predefined`) tells it which page to render (see below). The Core
@@ -348,21 +305,17 @@ draws every label and translates it; see
 [Page labels](#page-labels-and-the-panels-page-gate).
 
 **`contributes`** puts this plugin into Core pages, at the extension targets
-the Core defines. The Core decides where each renders, orders, loads, mounts,
-updates and unmounts them:
+the Core defines. The Core decides where each renders, filters them by the
+user's actions, orders, loads, mounts, updates and unmounts them:
 
-| id | Target | Exposed module | Tab |
-|---|---|---|---|
-| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | - |
-| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | label `todo` (a key), `fa-square-check` |
+| id | Target | Exposed module | Action | Tab |
+|---|---|---|---|---|
+| `computer-todo-action` | `computer.details.header.actions` | `./ComputerTodoAction` | `todo.add_todo` | - |
+| `computer-todo-tab` | `computer.details.tabs` | `./ComputerTodoTab` | `todo.read_todo` | label `to-do` (a key), `fa-square-check` |
 
-A contribution carries no permission: the panel shows it to everyone who
-holds the Core's computers tab (Forge ADR-09), and the Forge manifest has no
-field for one. So the header action hides itself: it stays hidden until
-`GET /me` says the user may add todos. The tab shows the list to readers,
-without the add form when they cannot write; a user with no access to the app
-at all sees the API's refusal there. The tab's label is a key: the Core draws
-the tab and translates it.
+The header action adds todos, so only users with `todo.add_todo` see it; the
+tab is shown to users with `todo.read_todo`. The tab's label is a key: the Core
+draws the tab and translates it.
 
 ### Module Federation remote
 

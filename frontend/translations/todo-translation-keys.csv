@@ -18,6 +18,9 @@ todo.error-reference
 todo.error-request-failed
 todo.error-session-ended
 todo.error-unavailable
+todo.export
+todo.export-failed
+todo.exporting
 todo.list-items-placeholder
 todo.list-items-required
 todo.list-name-placeholder

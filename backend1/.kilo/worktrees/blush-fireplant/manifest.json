@@ -1,0 +1,94 @@
+{
+  "manifestVersion": 2,
+  "id": "todo",
+  "name": "Todo List",
+  "version": "1.3.0",
+  "description": "A personal todo list with reusable predefined lists, served behind Cobalt Core's /apps proxy",
+  "icon": "fa-square-check",
+
+  "compatibility": {
+    "mountApiVersion": 1,
+    "coreIdentity": 1,
+    "coreMin": "1.0.0"
+  },
+
+  "core": {
+    "tabKeys": ["todo"],
+    "roleNames": [],
+    "tokenTtlSeconds": 180
+  },
+
+  "routes": {
+    "frontend": "/apps/todo/",
+    "backend": "/apps/todo/api"
+  },
+
+  "navigation": [
+    {
+      "label": "todo",
+      "icon": "fa-square-check",
+      "order": 100,
+      "path": "/plugins/ui/todo",
+      "children": [
+        {
+          "label": "todo-list",
+          "path": "/plugins/ui/todo",
+          "permission": "todo:read",
+          "subTab": "list",
+          "order": 101
+        },
+        {
+          "label": "predefined-todo-list",
+          "path": "/plugins/ui/todo/predefined",
+          "permission": "todo:read",
+          "subTab": "predefined",
+          "order": 102
+        }
+      ]
+    }
+  ],
+
+  "frontend": {
+    "type": "module-federation",
+    "bundler": "vite",
+    "remoteName": "todo_plugin",
+    "remoteEntry": "remoteEntry.js",
+    "mfManifest": "mf-manifest.json",
+    "exposedModule": "./TodoApp",
+    "mountFunction": "mount",
+    "unmountFunction": "unmount",
+    "sdk": ["api", "i18n"],
+    "shared": []
+  },
+
+  "contributes": [
+    {
+      "id": "computer-todo-action",
+      "target": "computer.details.header.actions",
+      "exposedModule": "./ComputerTodoAction",
+      "permission": "todo.todo.all",
+      "order": 100
+    },
+    {
+      "id": "computer-todo-tab",
+      "target": "computer.details.tabs",
+      "exposedModule": "./ComputerTodoTab",
+      "permission": "todo.todo.read",
+      "label": "todo",
+      "icon": "fa-square-check",
+      "order": 100
+    }
+  ],
+
+  "backend": {
+    "apiRoot": "/api",
+    "healthCheck": "/api/health",
+    "manifest": "/api/manifest",
+    "openapi": "/api/openapi.json"
+  },
+
+  "permissions": [
+    { "key": "todo:read", "description": "View todo items and predefined lists", "tab": "todo", "level": "read" },
+    { "key": "todo:write", "description": "Create, edit and delete todo items and predefined lists", "tab": "todo", "level": "all" }
+  ]
+}

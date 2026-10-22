@@ -20,9 +20,10 @@ call this service directly.
     PUT    /api/todos/{id}     update title and/or done        todo.update
     DELETE /api/todos/{id}     delete                          todo.delete
     GET    /api/predefined-lists        this user's lists      predefined.view
-    POST   /api/predefined-lists        create                 predefined.create
-    PUT    /api/predefined-lists/{id}   update name/items      predefined.update
-    DELETE /api/predefined-lists/{id}   delete                 predefined.delete
+    POST   /api/predefined-lists        create                  predefined.create
+    PUT    /api/predefined-lists/{id}   update name/items       predefined.update
+    DELETE /api/predefined-lists/{id}   delete                  predefined.delete
+    GET    /api/exports/todos           export data for Core    todo.view
     GET    /api/me             who Core says is calling        any valid token
     GET    /api/health         liveness                        open
     GET    /api/manifest       this app's manifest, for Core   open
@@ -37,22 +38,17 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Response,
 
 import models
 from auth import (
-    ACTIONS,
     ADD_PREDEFINED_LIST,
     ADD_TODO,
-    ALLOW,
     DELETE_PREDEFINED_LIST,
     DELETE_TODO,
     READ_PREDEFINED_LIST,
     READ_TODO,
     UPDATE_PREDEFINED_LIST,
     UPDATE_TODO,
-    VIEW_ACTIONS,
-    action_permissions,
-    approval_of,
-    identity,
+    get_delegated_principal,
     owner_of,
-    require_action,
+    require_delegated_action,
 )
 from database import init_storage
 from schemas import (
@@ -99,24 +95,31 @@ todos_router = APIRouter(prefix="/api/todos", tags=["Todos"])
 @todos_router.get("", response_model=List[TodoOut])
 def list_todos(
     computer_id: Optional[int] = Query(None, ge=1),
-    who=Depends(require_action(READ_TODO)),
+    who=Depends(require_delegated_action(READ_TODO)),
 ):
     """This user's todos, newest first; only one computer's with ``computer_id``."""
     return models.list_todos(*owner_of(who), computer_id=computer_id)
 
 
 @todos_router.post("", response_model=TodoOut, status_code=status.HTTP_201_CREATED)
-def create_todo(todo: TodoCreate, who=Depends(require_action(ADD_TODO))):
+def create_todo(
+    todo: TodoCreate,
+    response: Response,
+    who=Depends(require_delegated_action(ADD_TODO)),
+):
     """Create a new todo for this user, about a computer when it names one."""
-    return models.create_todo(*owner_of(who), todo.title, computer_id=todo.computer_id,
-                              approval_request_id=approval_of(who, ADD_TODO))
+    created = models.create_todo(
+        *owner_of(who), todo.title, computer_id=todo.computer_id
+    )
+    response.headers["X-Cobalt-Admin-Notification"] = "todo_created"
+    return created
 
 
 @todos_router.put("/{todo_id}", response_model=TodoOut)
 def update_todo(
     todo_id: int,
     todo: TodoUpdate,
-    who=Depends(require_action(UPDATE_TODO)),
+    who=Depends(require_delegated_action(UPDATE_TODO)),
 ):
     """Update a todo's title, its completion state, or both."""
     updated = models.update_todo(*owner_of(who), todo_id, todo.title, todo.done)
@@ -126,7 +129,7 @@ def update_todo(
 
 
 @todos_router.delete("/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_todo(todo_id: int, who=Depends(require_action(DELETE_TODO))):
+def delete_todo(todo_id: int, who=Depends(require_delegated_action(DELETE_TODO))):
     """Delete a todo."""
     if not models.delete_todo(*owner_of(who), todo_id):
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -134,6 +137,28 @@ def delete_todo(todo_id: int, who=Depends(require_action(DELETE_TODO))):
 
 
 app.include_router(todos_router)
+
+# ---------------------------------------------------------------------------
+# Exports - Core turns this bounded data document into CSV/XLSX on its worker
+# ---------------------------------------------------------------------------
+
+exports_router = APIRouter(prefix="/api/exports", tags=["Exports"])
+
+
+@exports_router.get("/todos")
+def export_todos(who=Depends(require_delegated_action(READ_TODO))):
+    todos = models.list_todos(*owner_of(who))
+    return {
+        "filename": "todos",
+        "columns": ["id", "title", "done", "computer_id"],
+        "rows": [
+            [todo.id, todo.title, todo.done, todo.computer_id]
+            for todo in todos
+        ],
+    }
+
+
+app.include_router(exports_router)
 
 # ---------------------------------------------------------------------------
 # Predefined lists - reusable templates, kept with the same identity and
@@ -144,7 +169,9 @@ predefined_router = APIRouter(prefix="/api/predefined-lists", tags=["Predefined 
 
 
 @predefined_router.get("", response_model=List[PredefinedListOut])
-def list_predefined_lists(who=Depends(require_action(READ_PREDEFINED_LIST))):
+def list_predefined_lists(
+    who=Depends(require_delegated_action(READ_PREDEFINED_LIST)),
+):
     """This user's predefined lists, newest first."""
     return models.list_predefined_lists(*owner_of(who))
 
@@ -152,7 +179,7 @@ def list_predefined_lists(who=Depends(require_action(READ_PREDEFINED_LIST))):
 @predefined_router.post("", response_model=PredefinedListOut, status_code=status.HTTP_201_CREATED)
 def create_predefined_list(
     body: PredefinedListCreate,
-    who=Depends(require_action(ADD_PREDEFINED_LIST)),
+    who=Depends(require_delegated_action(ADD_PREDEFINED_LIST)),
 ):
     """Create a new predefined list for this user."""
     return models.create_predefined_list(
@@ -165,7 +192,7 @@ def create_predefined_list(
 def update_predefined_list(
     list_id: int,
     body: PredefinedListUpdate,
-    who=Depends(require_action(UPDATE_PREDEFINED_LIST)),
+    who=Depends(require_delegated_action(UPDATE_PREDEFINED_LIST)),
 ):
     """Update a predefined list's name, its items, or both."""
     updated = models.update_predefined_list(*owner_of(who), list_id, body.name, body.items)
@@ -177,7 +204,7 @@ def update_predefined_list(
 @predefined_router.delete("/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_predefined_list(
     list_id: int,
-    who=Depends(require_action(DELETE_PREDEFINED_LIST)),
+    who=Depends(require_delegated_action(DELETE_PREDEFINED_LIST)),
 ):
     """Delete a predefined list."""
     if not models.delete_predefined_list(*owner_of(who), list_id):
@@ -191,27 +218,31 @@ app.include_router(predefined_router)
 # Identity, health, manifest
 # ---------------------------------------------------------------------------
 
-
 @app.get("/api/me", tags=["Identity"])
-def whoami(who=Depends(identity)):
-    """Who Core says is calling, and Core's decision on each of this app's actions.
-
-    The UI offers a control for ALLOW and REQUIRE_APPROVAL and hides it
-    otherwise, rather than letting the user click and fail. ``actions`` lists
-    the allowed ones; ``can_read`` and ``can_write`` stay for an older UI.
-    """
-    decisions = {
-        key: decision for key, decision in action_permissions(who).items() if key in ACTIONS
+def whoami(who=Depends(get_delegated_principal)):
+    """Who Core says is calling, including the delegated action keys."""
+    write_actions = {
+        "todo.create",
+        "todo.update",
+        "todo.delete",
+        "predefined.create",
+        "predefined.update",
+        "predefined.delete",
     }
-    allowed = {key for key, decision in decisions.items() if decision == ALLOW}
+    allowed_actions = {
+        action
+        for action, decision in who.action_permissions.items()
+        if decision == "ALLOW"
+    }
     return {
         "subject": who.subject,
         "username": who.username,
         "tenant_id": who.tenant_id,
-        "actions": sorted(allowed),
-        "action_permissions": decisions,
-        "can_read": bool(allowed & VIEW_ACTIONS),
-        "can_write": bool(allowed - VIEW_ACTIONS),
+        "actions": sorted(allowed_actions),
+        "action_permissions": dict(who.action_permissions),
+        # Compatibility for the current UI while it adopts granular actions.
+        "can_read": bool({"todo.view", "predefined.view"} & allowed_actions),
+        "can_write": bool(write_actions & allowed_actions),
     }
 
 

@@ -14,23 +14,20 @@
  * language redraws them in place: an open dialog stays open, with what was
  * typed in it.
  *
- * Only a user who may add todos sees it. The panel shows a contribution to
- * everyone who holds the Core's computers tab and reads no permission on it
- * (ADR-09), so the button hides itself: it stays hidden until GET /me says
- * the user holds todo.create (Allow or Require approval), and stays hidden
- * when /me fails. The API refuses anyone else regardless.
+ * The manifest asks the Core to show it only to users who may add todos
+ * (todo.create); the API refuses anyone else regardless.
  */
 
 import { createPluginTranslation } from '../plugin-translation.js';
 import { todosChanged } from '../todo-events.js';
 import { ACTIONS, hasAction } from '../actions.js';
 import { hidePendingApproval, showPendingApproval } from '../approval-card.js';
-import { appendHtml, whoIsCalling } from '../pages/shared.js';
+import { appendHtml } from '../pages/shared.js';
 import { createContribution, notify } from './contribution.js';
 import styles from './computer-todo-action.css?inline';
 
 const TEMPLATE = `
-  <button type="button" class="open" hidden data-i18n-title="todo.add-computer-todo-tooltip">
+  <button type="button" class="open" data-i18n-title="todo.add-computer-todo-tooltip" hidden>
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
       <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
     </svg>
@@ -76,9 +73,17 @@ function renderAction(root, { computerId, sdk }) {
 
   let destroyed = false;
 
-  whoIsCalling(sdk.api).then((me) => {
-    if (!destroyed && me && hasAction(me, ACTIONS.TODO_CREATE)) open.hidden = false;
-  });
+  sdk.api.get('/me').then((me) => {
+    if (!destroyed) open.hidden = !hasAction({
+      actions: Array.isArray(me?.actions) ? me.actions : null,
+      actionPermissions: (
+        me?.action_permissions
+        && typeof me.action_permissions === 'object'
+        && !Array.isArray(me.action_permissions)
+      ) ? { ...me.action_permissions } : null,
+      canWrite: Boolean(me?.can_write),
+    }, ACTIONS.TODO_CREATE);
+  }).catch(() => {});
 
   /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
