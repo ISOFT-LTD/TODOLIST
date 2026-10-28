@@ -52,6 +52,7 @@ export function fakeSdk({
   const api = {
     get: vi.fn(async (path) => {
       if (path === '/me') return meOf({ canWrite, decisions });
+      if (path === '/health') return { status: 'ok' };
       if (kindOf(path) === 'lists') return held.lists.map((list) => ({ ...list }));
       const computer = new URL(path, 'http://api.invalid').searchParams.get('computer_id');
       return held.todos

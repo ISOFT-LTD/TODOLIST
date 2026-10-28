@@ -31,9 +31,11 @@ todo.no-computer
 todo.no-computer-todos
 todo.no-predefined-lists
 todo.no-todos
+todo.open-todos
 todo.predefined-title
 todo.read-only
 todo.read-only-suffix
 todo.save
+todo.service-status
 todo.signed-in-as
 todo.title

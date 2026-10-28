@@ -174,3 +174,16 @@ ui:
       icon: fa-square-check
       exposedModule: ./ComputerTodoTab
       order: 100
+    # One section in each settings group, so both targets are proven. The context is empty.
+    - id: todo-user-settings
+      target: settings.navigation.user
+      label: todo
+      icon: fa-square-check
+      exposedModule: ./TodoUserSettings
+      order: 100
+    - id: todo-system-settings
+      target: settings.navigation.system
+      label: todo
+      icon: fa-square-check
+      exposedModule: ./TodoSystemSettings
+      order: 100

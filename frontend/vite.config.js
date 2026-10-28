@@ -18,6 +18,8 @@ const sources = {
   // mount(el, context, sdk) returning { update, unmount }.
   './ComputerTodoAction': './src/extensions/computer-todo-action.js',
   './ComputerTodoTab': './src/extensions/computer-todo-tab.js',
+  './TodoUserSettings': './src/extensions/todo-user-settings.js',
+  './TodoSystemSettings': './src/extensions/todo-system-settings.js',
 };
 const declared = [ui.remote.exposedModule, ...(ui.contributions ?? []).map((c) => c.exposedModule)];
 const undeclared = Object.keys(sources).filter((name) => !declared.includes(name));

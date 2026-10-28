@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readInventory } from '../translations/inventory.js';
 import * as actionModule from './extensions/computer-todo-action.js';
 import * as tabModule from './extensions/computer-todo-tab.js';
+import * as userSettingsModule from './extensions/todo-user-settings.js';
+import * as systemSettingsModule from './extensions/todo-system-settings.js';
 import { mount, unmount } from './todo-app.js';
 import { MARK, fakeI18n } from './testing/i18n.js';
 import { fakeSdk, settle } from './testing/sdk.js';
@@ -51,7 +53,7 @@ function readable(root) {
 }
 
 /** The words that are not the plugin's: what the API answered with, and what the test typed. */
-const DATA = ['alice', 'Replace the disk', 'Buy milk', 'New Employee Setup', 'Create account', 'Assign laptop', 'Offboarding', 'Server said no'];
+const DATA = ['alice', 'Replace the disk', 'Buy milk', 'New Employee Setup', 'Create account', 'Assign laptop', 'Offboarding', 'Server said no', 'ok'];
 
 /** Fails on any letter a surface shows that is neither a marked key nor data. */
 function expectOnlyKeysAndData(root) {
@@ -283,6 +285,32 @@ describe('the Add Todo action on Computer Details', () => {
     const [mark, key] = [...message.matchAll(MARK)][0];
     expect(message).toBe(mark);
     expect(KEYS.has(key)).toBe(true);
+    handle.unmount();
+  });
+});
+
+describe('the Todo sections in Settings', () => {
+  it.each([
+    ['user', userSettingsModule],
+    ['system', systemSettingsModule],
+  ])('the %s section, before the API has answered, then with its answer', async (_group, module) => {
+    const handle = module.mount(host, {}, fakeSdk({ i18n, todos: TODOS }));
+    expect(expectOnlyKeysAndData(host.shadowRoot).length).toBeGreaterThan(0);
+    await settle();
+    expectOnlyKeysAndData(host.shadowRoot);
+    handle.unmount();
+  });
+
+  it.each([
+    ['user', userSettingsModule],
+    ['system', systemSettingsModule],
+  ])('the %s section, with an error the API answered', async (_group, module) => {
+    const sdk = fakeSdk({ i18n });
+    sdk.api.get.mockRejectedValue(new Error('Server said no'));
+    const handle = module.mount(host, {}, sdk);
+    await settle();
+    expect($('.error').hidden).toBe(false);
+    expectOnlyKeysAndData(host.shadowRoot);
     handle.unmount();
   });
 });
