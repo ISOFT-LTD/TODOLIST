@@ -42,6 +42,7 @@ def test_the_parts_core_and_the_panel_key_on_stay_put(client):
     assert {c["id"]: c["exposedModule"] for c in served["contributes"]} == {
         "computer-todo-action": "./ComputerTodoAction",
         "computer-todo-tab": "./ComputerTodoTab",
+        "computer-todo-tile": "./ComputerTodoTab",
         "todo-user-settings": "./TodoUserSettings",
         "todo-system-settings": "./TodoSystemSettings",
     }

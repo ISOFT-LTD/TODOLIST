@@ -93,6 +93,14 @@
       "order": 100
     },
     {
+      "id": "computer-todo-tile",
+      "target": "computer.list.actions",
+      "label": "todo",
+      "icon": "fa-square-check",
+      "exposedModule": "./ComputerTodoTab",
+      "order": 100
+    },
+    {
       "id": "todo-user-settings",
       "target": "settings.navigation.user",
       "label": "todo",
