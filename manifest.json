@@ -59,7 +59,8 @@
     "unmountFunction": "unmount",
     "sdk": [
       "api",
-      "i18n"
+      "i18n",
+      "ui"
     ],
     "shared": []
   },

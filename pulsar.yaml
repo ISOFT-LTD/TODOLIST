@@ -142,7 +142,7 @@ ui:
     mountFunction: mount
     unmountFunction: unmount
     # i18n: the contributions and pages take their words from the panel's translations.
-    sdk: [api, i18n]
+    sdk: [api, i18n, ui]
     shared: []
   navigation:
     # The group's own path makes its title a link to the To do List, as on staging today.

@@ -18,6 +18,8 @@
  *
  *   ''             or '/'    the To do List             /plugins/ui/todo
  *   '/predefined'            the Predefined to do lists /plugins/ui/todo/predefined
+ *   anything else            the Core's "page not found" (sdk.ui), or the
+ *                            To do List where there is no sdk.ui
  *
  * When the host passes no `path`, the plugin reads it off the page URL, so a
  * shell that only routes the address bar still lands on the right page. To
@@ -32,6 +34,9 @@
  *   - the application's translations, the Core's own; the plugin bundles none
  *   - a change of language is no new mount: the page is told through
  *     subscribe and redraws its words in place (plugin-translation.js)
+ *   sdk.ui.noData(el, options) / notFound(el)        optional
+ *   - the Core's own empty state and 404, drawn by the Core into `el`;
+ *     each returns what erases it (pages/empty-state.js)
  */
 
 import styles from './styles.css?inline';
@@ -63,10 +68,22 @@ function pathFromLocation() {
   return match ? match.path : '';
 }
 
-/** The page for a sub-path; unknown paths fall back to the To do List. */
+/** The page for a sub-path, or null for one the plugin has no page at. */
 export function resolvePage(path) {
   const wanted = path === undefined || path === null ? pathFromLocation() : normalizePath(path);
-  return PAGES.find((page) => page.path === wanted) ?? PAGES[0];
+  return PAGES.find((page) => page.path === wanted) ?? null;
+}
+
+/**
+ * What a sub-path with no page shows: the Core's "page not found", drawn by
+ * the Core (sdk.ui). Where there is no sdk.ui, the To do List, as before.
+ */
+function mountNotFound(root, { ui, api, i18n }) {
+  if (typeof ui?.notFound !== 'function') return PAGES[0].mount(root, { api, i18n, ui });
+  const slot = document.createElement('div');
+  root.append(slot);
+  const erase = ui.notFound(slot);
+  return () => erase();
 }
 
 /**
@@ -89,7 +106,8 @@ export function mount(el, { sdk, path } = {}) {
   if (missing.length) {
     throw new Error(`todo-plugin: mount() needs { sdk } with ${missing.join(', ')}`);
   }
-  const { api, i18n } = sdk;
+  // sdk.ui is optional: a Core from before it, and the standalone page, have none.
+  const { api, i18n, ui } = sdk;
 
   // Remount cleanly. React StrictMode mounts, unmounts, then mounts again.
   unmount(el);
@@ -99,7 +117,7 @@ export function mount(el, { sdk, path } = {}) {
   root.innerHTML = `<style>${styles}</style>`;
 
   const page = resolvePage(path);
-  const teardownPage = page.mount(root, { api, i18n });
+  const teardownPage = (page?.mount ?? mountNotFound)(root, { api, i18n, ui });
 
   instances.set(el, () => {
     teardownPage();

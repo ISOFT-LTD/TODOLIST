@@ -1,8 +1,8 @@
 /**
  * The To do List page: this user's todos, with add, edit, tick and delete.
  *
- *   const teardown = mountTodoList(shadowRoot, { api, i18n });
- *   const teardown = mountTodoList(shadowRoot, { api, i18n, computerId: 42 });
+ *   const teardown = mountTodoList(shadowRoot, { api, i18n, ui });
+ *   const teardown = mountTodoList(shadowRoot, { api, i18n, ui, computerId: 42 });
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
  * place) and talks to the Todo API through `api` (see todo-app.js). The
@@ -14,9 +14,13 @@
  * Computer Details tab shows: only that computer's todos, and new ones are
  * added to it. Without, it is the standalone page: every todo, each one that
  * is about a computer saying which.
+ *
+ * An empty list shows the Core's empty state through `ui` (sdk.ui), where
+ * the host gives one (see empty-state.js).
  */
 
 import { createPluginTranslation } from '../plugin-translation.js';
+import { createEmptyState } from './empty-state.js';
 import { onTodosChanged } from '../todo-events.js';
 import { ACTIONS, hasAction } from '../actions.js';
 import { hidePendingApproval, showPendingApproval } from '../approval-card.js';
@@ -84,10 +88,11 @@ const EMBEDDED_TEMPLATE = `
   </main>
 `;
 
-export function mountTodoList(root, { api, i18n, computerId = null }) {
+export function mountTodoList(root, { api, i18n, ui, computerId = null }) {
   const scoped = computerId !== null;
   appendHtml(root, scoped ? EMBEDDED_TEMPLATE : TEMPLATE);
   const texts = createPluginTranslation(i18n, root);
+  const empty = createEmptyState(ui, texts);
   const listPath = scoped ? `/todos?computer_id=${encodeURIComponent(computerId)}` : '/todos';
 
   const list = root.querySelector('.list');
@@ -150,12 +155,10 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
 
   function render(todos) {
     if (destroyed) return;
+    empty.clear();
     list.innerHTML = '';
     if (!todos.length) {
-      const empty = document.createElement('p');
-      empty.className = 'empty';
-      texts.text(empty, scoped ? 'todo.no-computer-todos' : 'todo.no-todos');
-      list.append(empty);
+      empty.show(list, scoped ? 'todo.no-computer-todos' : 'todo.no-todos');
       return;
     }
     for (const todo of todos) {
@@ -313,6 +316,7 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
   return () => {
     destroyed = true;
     stopListening();
+    empty.clear();
     texts.stop();
   };
 }

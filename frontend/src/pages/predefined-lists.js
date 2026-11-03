@@ -4,15 +4,17 @@
  * ...". View, create, edit and delete them. Turning a template into real
  * todos is a later feature.
  *
- *   const teardown = mountPredefinedLists(shadowRoot, { api, i18n });
+ *   const teardown = mountPredefinedLists(shadowRoot, { api, i18n, ui });
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
  * place) and talks to the API only through `api` (see todo-app.js). Its
  * words come from `i18n`, the application's translations, through the
  * plugin's translation helper: a change of language redraws them in place.
+ * An empty page shows the Core's empty state through `ui` (see empty-state.js).
  */
 
 import { createPluginTranslation } from '../plugin-translation.js';
+import { createEmptyState } from './empty-state.js';
 import { ACTIONS, hasAction } from '../actions.js';
 import { hidePendingApproval, showPendingApproval } from '../approval-card.js';
 import { appendHtml, describeUser, whoIsCalling } from './shared.js';
@@ -44,9 +46,10 @@ function parseItems(text) {
   return String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-export function mountPredefinedLists(root, { api, i18n }) {
+export function mountPredefinedLists(root, { api, i18n, ui }) {
   appendHtml(root, TEMPLATE);
   const texts = createPluginTranslation(i18n, root);
+  const empty = createEmptyState(ui, texts);
 
   const list = root.querySelector('.list');
   const form = root.querySelector('.template-form');
@@ -152,12 +155,10 @@ export function mountPredefinedLists(root, { api, i18n }) {
 
   function render(templates) {
     if (destroyed) return;
+    empty.clear();
     list.innerHTML = '';
     if (!templates.length) {
-      const empty = document.createElement('p');
-      empty.className = 'empty';
-      texts.text(empty, 'todo.no-predefined-lists');
-      list.append(empty);
+      empty.show(list, 'todo.no-predefined-lists');
       return;
     }
     for (const template of templates) {
@@ -253,6 +254,7 @@ export function mountPredefinedLists(root, { api, i18n }) {
 
   return () => {
     destroyed = true;
+    empty.clear();
     texts.stop();
   };
 }
