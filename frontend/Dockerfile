@@ -20,6 +20,11 @@ RUN pnpm build
 
 # nginx without root: the image runs as its own user and listens on 8080 (ADR-10).
 FROM nginxinc/nginx-unprivileged:1.30-alpine
+# Alpine's fixed packages go in at build time, so a CRITICAL fixed upstream does not wait for a
+# new image tag (1.30 alone still carried the brotli CVE).
+USER root
+RUN apk upgrade --no-cache
+USER 101
 # The image fills in ${TODO_BACKEND_URL} from the environment when the container starts;
 # pulsar.yaml sets it to http://backend:8000.
 COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template

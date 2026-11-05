@@ -44,7 +44,8 @@ jobs:
 
   release:
     needs: version
-    uses: ISOFT-LTD/forge/.github/workflows/app-release.yml@main
+    uses: ISOFT-LTD/forge/.github/workflows/app-release.yml@v1
     with:
       app-path: .
+      forge-ref: v1          # the tools of the same Forge version as the workflow
     secrets: inherit
