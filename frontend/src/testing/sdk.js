@@ -85,7 +85,11 @@ export function fakeSdk({
   const pagination = { last: () => pagination.calls.at(-1)?.[1], calls: [], erase: vi.fn() };
   const modeListeners = new Set();
   let mode = 'pagination';
+  // ui.rowsThatFit: `fit.rows` is the answer of the moment; fit.set(n) is the
+  // Core measuring another size (a resize) and telling the page.
+  const fit = { rows: 10, tell: null, stop: vi.fn(), set(n) { fit.rows = n; fit.tell?.(n); } };
   const ui = {
+    rowsThatFit: vi.fn((list, onChange) => { fit.tell = onChange; return { rows: () => fit.rows, stop: fit.stop }; }),
     tableMode: vi.fn(() => mode),
     onTableModeChange: vi.fn((listener) => { modeListeners.add(listener); return () => modeListeners.delete(listener); }),
     pagination: vi.fn((el, props) => { pagination.calls.push([el, props]); return pagination.erase; }),
@@ -94,5 +98,5 @@ export function fakeSdk({
     setMode(next) { mode = next; modeListeners.forEach((listener) => listener()); },
   };
 
-  return { api, navigate: vi.fn(), notify: vi.fn(), i18n, ui, pagination };
+  return { api, navigate: vi.fn(), notify: vi.fn(), i18n, ui, pagination, fit };
 }

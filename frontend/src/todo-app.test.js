@@ -131,6 +131,68 @@ it('keeps each tables numbers apart when a plugin has two', async () => {
   stopB();
 });
 
+it('takes its page size from how many rows fit on screen', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(40) });
+  sdk.fit.rows = 7;
+  const { el, unmount } = await standalone(sdk);
+
+  expect(sdk.api.get).toHaveBeenCalledWith('/todos?limit=7&offset=0');
+  expect(shown(el)).toHaveLength(7);
+  expect(sdk.pagination.last()).toMatchObject({ pageSize: 7 });
+  unmount();
+});
+
+it('keeps the page the user is on when the window changes size', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(40) });
+  const { el, unmount } = await standalone(sdk);
+  sdk.pagination.last().onPage(20); // page 3 of 4, at 10 rows
+  await settle();
+
+  sdk.fit.set(8);
+  await settle();
+
+  expect(sdk.api.get).toHaveBeenLastCalledWith('/todos?limit=8&offset=16');
+  expect(sdk.pagination.last()).toMatchObject({ pageSize: 8, offset: 16 });
+  expect(shown(el)).toHaveLength(8);
+  unmount();
+});
+
+it('never lands past the last page when the size grows', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(40) });
+  const { unmount } = await standalone(sdk);
+  sdk.pagination.last().onPage(30); // the last page, at 10 rows
+  await settle();
+
+  sdk.fit.set(25); // 40 rows is now two pages
+  await settle();
+
+  expect(sdk.api.get).toHaveBeenLastCalledWith('/todos?limit=25&offset=25');
+  unmount();
+});
+
+it('in load-more mode, a new size reloads what is held at the new size', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(40) });
+  sdk.ui.setMode('loadMore');
+  const { el, unmount } = await standalone(sdk);
+  sdk.pagination.last().onLoadMore();
+  await settle();
+  expect(shown(el)).toHaveLength(20);
+
+  sdk.fit.set(8);
+  await settle();
+
+  expect(sdk.api.get).toHaveBeenLastCalledWith('/todos?limit=20&offset=0');
+  expect(sdk.pagination.last()).toMatchObject({ pageSize: 8, loaded: 20 });
+  unmount();
+});
+
+it('stops measuring when the page goes', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(3) });
+  const { unmount } = await standalone(sdk);
+  unmount();
+  expect(sdk.fit.stop).toHaveBeenCalledTimes(1);
+});
+
 it('draws the Core loader while the first page loads, and erases it', async () => {
   const sdk = fakeSdk({ todos: manyTodos(3) });
   const erase = vi.fn();

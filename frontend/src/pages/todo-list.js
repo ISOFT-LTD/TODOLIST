@@ -95,8 +95,8 @@ const EMBEDDED_TEMPLATE = `
   </main>
 `;
 
-/** Rows per page, and per "Load more". */
-const PAGE_SIZE = 10;
+/** Rows per page when the Core cannot say how many fit (ui.rowsThatFit). */
+const FALLBACK_PAGE_SIZE = 10;
 /** Without a pagination footer there is no "next", so ask for as many as the service allows. */
 const UNPAGED_LIMIT = 200;
 
@@ -137,7 +137,14 @@ export function mountTodoList(root, { api, i18n, ui, computerId = null }) {
   let stopPagination = null;
   // A Core from before ui.pagination: show what one request can carry, no footer.
   const paged = typeof ui?.pagination === 'function';
-  const pageSize = paged ? PAGE_SIZE : UNPAGED_LIMIT;
+  // Rows per page, and per "Load more": as many as fit on screen, as on the
+  // Assets pages. The Core answers at once and again when the window or the
+  // rows change.
+  let pageSize = UNPAGED_LIMIT;
+  const fit = paged
+    ? ui.rowsThatFit?.(list, (rows) => resize(rows), { row: 'li' })
+    : null;
+  if (paged) pageSize = fit?.rows() ?? FALLBACK_PAGE_SIZE;
   // The user's own setting, the same for every table; redrawn when they change it.
   let mode = ui?.tableMode?.() ?? 'pagination';
   const stopMode = ui?.onTableModeChange?.(() => {
@@ -291,10 +298,10 @@ export function mountTodoList(root, { api, i18n, ui, computerId = null }) {
       total,
       offset: windowStart,
       loaded: held.length,
-      pageSize: PAGE_SIZE,
+      pageSize,
       loading: busy,
-      onPage: (offset) => fetchRange({ offset, limit: PAGE_SIZE, append: false }),
-      onLoadMore: () => fetchRange({ offset: held.length, limit: PAGE_SIZE, append: true }),
+      onPage: (offset) => fetchRange({ offset, limit: pageSize, append: false }),
+      onLoadMore: () => fetchRange({ offset: held.length, limit: pageSize, append: true }),
     });
   }
 
@@ -341,6 +348,21 @@ export function mountTodoList(root, { api, i18n, ui, computerId = null }) {
 
   /** Fetch again what is on screen - after an edit, a delete, a tick. */
   const load = () => fetchRange({ offset: windowStart, limit: Math.max(held.length, pageSize), append: false });
+
+  /**
+   * The Core measured another page size (the window changed). Keep the page
+   * the user is on, as the Assets pages do, and never past the last one.
+   */
+  function resize(rows) {
+    if (destroyed || rows === pageSize) return;
+    const was = pageSize;
+    pageSize = rows;
+    if (serial === 0) return; // nothing fetched yet; the first request uses it
+    if (mode === 'loadMore') { load(); return; }
+    const page = Math.floor(windowStart / was);
+    const last = Math.max(0, Math.floor((total - 1) / rows));
+    fetchRange({ offset: Math.min(page, last) * rows, limit: rows, append: false });
+  }
 
   /** A new todo is the newest, so it is on the first page. */
   function loadFirst() {
@@ -404,6 +426,7 @@ export function mountTodoList(root, { api, i18n, ui, computerId = null }) {
     stopLoader?.();
     stopPagination?.();
     stopMode?.();
+    fit?.stop();
     empty.clear();
     texts.stop();
   };
