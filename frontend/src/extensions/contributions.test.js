@@ -16,10 +16,13 @@ function fakeSdk({ canWrite = true } = {}) {
       if (path === '/me') return { username: 'alice', can_write: canWrite };
       const url = new URL(path, 'http://api.invalid');
       const computer = url.searchParams.get('computer_id');
-      return todos
+      const mine = todos
         .filter((t) => computer === null || t.computer_id === Number(computer))
         .slice()
         .reverse();
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      const limit = Number(url.searchParams.get('limit') ?? mine.length);
+      return { results: mine.slice(offset, offset + limit), total: mine.length };
     }),
     post: vi.fn(async (path, body) => {
       const todo = { id: nextId++, title: body.title, done: false, computer_id: body.computer_id ?? null };
@@ -122,7 +125,7 @@ describe('ComputerTodoTab', () => {
     const handle = tabModule.mount(host, { computerId: 42 }, sdk);
     await settle();
 
-    expect(sdk.api.get).toHaveBeenCalledWith('/todos?computer_id=42');
+    expect(sdk.api.get).toHaveBeenCalledWith('/todos?computer_id=42&limit=200&offset=0');
     expect(titles(host)).toEqual(['Replace the disk']);
     handle.unmount();
   });

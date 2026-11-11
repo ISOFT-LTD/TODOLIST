@@ -102,7 +102,7 @@ def test_create_update_complete_delete(client):
     assert done.json()["done"] is True
 
     assert client.delete(f"/api/todos/{todo['id']}", headers=as_user()).status_code == 204
-    assert client.get("/api/todos", headers=as_user()).json() == []
+    assert client.get("/api/todos", headers=as_user()).json()["results"] == []
 
 
 def test_a_blank_title_is_refused(client):
@@ -115,8 +115,8 @@ def test_each_user_sees_only_their_own(client):
     client.post("/api/todos", json={"title": "alice's"}, headers=as_user("17"))
     client.post("/api/todos", json={"title": "bo's"}, headers=as_user("42", username="bo"))
 
-    alice = [t["title"] for t in client.get("/api/todos", headers=as_user("17")).json()]
-    bo = [t["title"] for t in client.get("/api/todos", headers=as_user("42")).json()]
+    alice = [t["title"] for t in client.get("/api/todos", headers=as_user("17")).json()["results"]]
+    bo = [t["title"] for t in client.get("/api/todos", headers=as_user("42")).json()["results"]]
 
     assert alice == ["alice's"]
     assert bo == ["bo's"]
@@ -129,14 +129,14 @@ def test_nobody_can_change_or_delete_another_users_todo(client):
     assert client.put(f"/api/todos/{theirs['id']}", json={"done": True},
                       headers=as_user("42")).status_code == 404
     assert client.delete(f"/api/todos/{theirs['id']}", headers=as_user("42")).status_code == 404
-    assert client.get("/api/todos", headers=as_user("17")).json()[0]["done"] is False
+    assert client.get("/api/todos", headers=as_user("17")).json()["results"][0]["done"] is False
 
 
 def test_the_username_is_not_the_owner(client):
     """Two people may share a display name; only Core's user id identifies them."""
     client.post("/api/todos", json={"title": "mine"}, headers=as_user("17", username="sam"))
 
-    assert client.get("/api/todos", headers=as_user("99", username="sam")).json() == []
+    assert client.get("/api/todos", headers=as_user("99", username="sam")).json()["results"] == []
 
 
 def test_rows_from_before_owners_existed_are_not_shown(client, tmp_path):
@@ -145,4 +145,42 @@ def test_rows_from_before_owners_existed_are_not_shown(client, tmp_path):
     with open(database.DATA_FILE, "w", encoding="utf-8") as handle:
         json.dump([{"id": 1, "title": "legacy", "done": False}], handle)
 
-    assert client.get("/api/todos", headers=as_user()).json() == []
+    assert client.get("/api/todos", headers=as_user()).json()["results"] == []
+
+
+# --- paging and export ----------------------------------------------------------------
+
+def test_the_list_is_paged_and_counted(client):
+    for n in range(5):
+        client.post("/api/todos", json={"title": f"t{n}"}, headers=as_user())
+
+    first = client.get("/api/todos?limit=2&offset=0", headers=as_user()).json()
+    last = client.get("/api/todos?limit=2&offset=4", headers=as_user()).json()
+
+    assert [t["title"] for t in first["results"]] == ["t4", "t3"]  # newest first
+    assert first["total"] == last["total"] == 5
+    assert [t["title"] for t in last["results"]] == ["t0"]
+
+
+def test_paging_limits_are_validated(client):
+    assert client.get("/api/todos?limit=0", headers=as_user()).status_code == 422
+    assert client.get("/api/todos?limit=201", headers=as_user()).status_code == 422
+    assert client.get("/api/todos?offset=-1", headers=as_user()).status_code == 422
+
+
+def test_export_is_the_whole_list_in_the_document_core_expects(client):
+    for n in range(3):
+        client.post("/api/todos", json={"title": f"t{n}"}, headers=as_user())
+
+    doc = client.get("/api/exports/todos", headers=as_user()).json()
+
+    assert doc["filename"] == "todos"
+    assert doc["columns"] == ["id", "title", "done", "computer_id"]
+    assert [row[1] for row in doc["rows"]] == ["t2", "t1", "t0"]
+
+
+def test_export_is_only_the_callers_and_needs_read_permission(client):
+    client.post("/api/todos", json={"title": "alice's"}, headers=as_user("17"))
+
+    assert client.get("/api/exports/todos", headers=as_user("42")).json()["rows"] == []
+    assert client.get("/api/exports/todos", headers=as_user(permissions=[])).status_code == 403

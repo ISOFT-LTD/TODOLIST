@@ -27,6 +27,9 @@
  *   - path is relative to this plugin's API, e.g. '/todos/1'
  *   - resolves to the parsed JSON response, or null when there is no body
  *   - rejects with an Error whose message is safe to show the user
+ *   sdk.ui.pager / loading / exportButton (optional)
+ *   - the Core's own list footer, loader and download button, drawn by the
+ *     Core into elements this page owns; without them the list is shown whole
  *   sdk.i18n.translate(key) / subscribe(listener)
  *   - the application's translations, the Core's own; the plugin bundles none
  *   - a change of language is no new mount: the page is told through
@@ -98,7 +101,7 @@ export function mount(el, { sdk, path } = {}) {
   root.innerHTML = `<style>${styles}</style>`;
 
   const page = resolvePage(path);
-  const teardownPage = page.mount(root, { api, i18n });
+  const teardownPage = page.mount(root, { api, i18n, ui: sdk.ui });
 
   instances.set(el, () => {
     teardownPage();

@@ -114,4 +114,4 @@ def test_nobody_can_change_or_delete_another_users_list(client):
 def test_predefined_lists_do_not_touch_the_todos(client):
     client.post(LIST, json=SETUP, headers=as_user())
 
-    assert client.get("/api/todos", headers=as_user()).json() == []
+    assert client.get("/api/todos", headers=as_user()).json()["results"] == []

@@ -5,7 +5,9 @@
  *   const teardown = mountTodoList(shadowRoot, { api, i18n, computerId: 42 });
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
- * place) and talks to the API only through `api` (see todo-app.js). Its
+ * place) and talks to the API only through `api` (see todo-app.js). The Core's
+ * own pager, loader and download button come through `ui`: the list is shown a
+ * page at a time, or with Load More, as the user's table-mode setting says. Its
  * words come from `i18n`, the application's translations, through the
  * plugin's translation helper: a change of language redraws them in place.
  *
@@ -23,11 +25,14 @@ const TEMPLATE = `
   <main class="todo">
     <h1 data-i18n="todo.title"></h1>
     <p class="who" hidden></p>
+    <div class="toolbar"></div>
     <form class="add-form">
       <input type="text" class="new-title" data-i18n-placeholder="todo.new-todo-placeholder" autocomplete="off" required>
       <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
     <ul class="list"></ul>
+    <div class="loading"></div>
+    <div class="pager"></div>
     <p class="error" hidden></p>
   </main>
 `;
@@ -40,11 +45,20 @@ const EMBEDDED_TEMPLATE = `
       <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
     <ul class="list"></ul>
+    <div class="loading"></div>
+    <div class="pager"></div>
     <p class="error" hidden></p>
   </main>
 `;
 
-export function mountTodoList(root, { api, i18n, computerId = null }) {
+/** Rows per page, and per "Load more". */
+const PAGE_SIZE = 10;
+/** Without a pager there is no "next", so ask for as many as the service allows. */
+const UNPAGED_LIMIT = 200;
+/** The service route Core exports the whole list from (see ui.exportButton). */
+const EXPORT_PATH = '/api/exports/todos';
+
+export function mountTodoList(root, { api, i18n, ui = null, computerId = null }) {
   const scoped = computerId !== null;
   appendHtml(root, scoped ? EMBEDDED_TEMPLATE : TEMPLATE);
   const texts = createPluginTranslation(i18n, root);
@@ -55,12 +69,31 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
   const input = root.querySelector('.new-title');
   const errorBox = root.querySelector('.error');
   const who = root.querySelector('.who');
+  const toolbar = root.querySelector('.toolbar');
+  const loadingBox = root.querySelector('.loading');
+  const pagerBox = root.querySelector('.pager');
 
   let destroyed = false;
   let editingId = null;
   // Until GET /me says otherwise. The service enforces it either way.
   let canWrite = true;
   let me = null;
+
+  // What is on screen: `held` is the rows from `windowStart` on. A page
+  // replaces it; "Load more" adds to it. `serial` drops an answer that a
+  // later request has overtaken.
+  let held = [];
+  let total = 0;
+  let windowStart = 0;
+  let serial = 0;
+  let busy = false;
+  let stopLoader = null;
+  // An older Core has no ui.pager: show what one request can carry, no footer.
+  const pager = ui?.pager
+    ? ui.pager(pagerBox, { pageSize: PAGE_SIZE, onChange: (request) => fetchRange(request) })
+    : null;
+  const pageSize = pager ? PAGE_SIZE : UNPAGED_LIMIT;
+  const stopExport = !scoped && ui?.exportButton ? ui.exportButton(toolbar, { path: EXPORT_PATH }) : null;
 
   /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
@@ -158,13 +191,53 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
     form.hidden = !canWrite;
   }
 
-  async function load() {
+  function drawPager(offset) {
+    pager?.update({ total, loaded: held.length, loading: busy, ...(offset === undefined ? {} : { offset }) });
+  }
+
+  /** Fetch rows [offset, offset + limit) and show them, or add them to the rows held. */
+  async function fetchRange({ offset, limit, append }) {
+    const mine = ++serial;
+    const first = held.length === 0;
+    busy = true;
+    drawPager();
+    if (first && ui?.loading && !stopLoader) stopLoader = ui.loading(loadingBox);
     try {
       showError('');
-      render(await api.get(listPath));
+      const sep = listPath.includes('?') ? '&' : '?';
+      const page = await api.get(`${listPath}${sep}limit=${limit}&offset=${offset}`);
+      if (destroyed || mine !== serial) return;
+      total = page.total;
+      // A delete emptied the last page: step back to the one before it.
+      if (!page.results.length && offset > 0 && total > 0 && !append) {
+        const back = Math.max(0, offset - limit);
+        windowStart = back;
+        drawPager(back);
+        return fetchRange({ offset: back, limit, append: false });
+      }
+      if (append) held = [...held, ...page.results];
+      else { held = page.results; windowStart = offset; }
+      render(held);
     } catch (err) {
-      showError(err.message);
+      if (!destroyed && mine === serial) showError(err.message);
+    } finally {
+      if (!destroyed && mine === serial) {
+        busy = false;
+        stopLoader?.();
+        stopLoader = null;
+        drawPager();
+      }
     }
+  }
+
+  /** Fetch again what is on screen - after an edit, a delete, a tick. */
+  const load = () => fetchRange({ offset: windowStart, limit: Math.max(held.length, pageSize), append: false });
+
+  /** A new todo is the newest, so it is on the first page. */
+  function loadFirst() {
+    windowStart = 0;
+    drawPager(0);
+    return fetchRange({ offset: 0, limit: Math.max(held.length, pageSize), append: false });
   }
 
   async function update(id, changes) {
@@ -193,23 +266,26 @@ export function mountTodoList(root, { api, i18n, computerId = null }) {
     try {
       await api.post('/todos', scoped ? { title, computer_id: computerId } : { title });
       input.value = '';
-      load();
+      loadFirst();
     } catch (err) {
       showError(err.message);
     }
   };
 
-  loadIdentity().then(load);
+  loadIdentity().then(() => fetchRange({ offset: 0, limit: pageSize, append: false }));
 
   // A todo added elsewhere in this plugin - the Computer Details header
   // action - shows up here without a reload.
   const stopListening = onTodosChanged((change) => {
-    if (!scoped || change.computerId === computerId) load();
+    if (!scoped || change.computerId === computerId) loadFirst();
   });
 
   return () => {
     destroyed = true;
     stopListening();
+    stopLoader?.();
+    pager?.destroy();
+    stopExport?.();
     texts.stop();
   };
 }

@@ -25,7 +25,7 @@ function renderTab(root, { computerId, sdk }) {
     const texts = createPluginTranslation(sdk.i18n, root);
     return () => texts.stop();
   }
-  return mountTodoList(root, { api: sdk.api, i18n: sdk.i18n, computerId });
+  return mountTodoList(root, { api: sdk.api, i18n: sdk.i18n, ui: sdk.ui, computerId });
 }
 
 export const mount = createContribution({ name: 'ComputerTodoTab', styles, render: renderTab });

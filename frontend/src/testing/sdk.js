@@ -23,10 +23,12 @@ export function fakeSdk({ i18n = fakeI18n(), canWrite = true, todos = [], lists 
     get: vi.fn(async (path) => {
       if (path === '/me') return { username: 'alice', can_write: canWrite };
       if (kindOf(path) === 'lists') return held.lists.map((list) => ({ ...list }));
-      const computer = new URL(path, 'http://api.invalid').searchParams.get('computer_id');
-      return held.todos
-        .filter((todo) => computer === null || todo.computer_id === Number(computer))
-        .map((todo) => ({ ...todo }));
+      const query = new URL(path, 'http://api.invalid').searchParams;
+      const computer = query.get('computer_id');
+      const mine = held.todos.filter((todo) => computer === null || todo.computer_id === Number(computer));
+      const offset = Number(query.get('offset') ?? 0);
+      const limit = Number(query.get('limit') ?? mine.length);
+      return { results: mine.slice(offset, offset + limit).map((todo) => ({ ...todo })), total: mine.length };
     }),
     post: vi.fn(async (path, body) => {
       const record = kindOf(path) === 'lists'
@@ -43,5 +45,14 @@ export function fakeSdk({ i18n = fakeI18n(), canWrite = true, todos = [], lists 
     }),
   };
 
-  return { api, navigate: vi.fn(), notify: vi.fn(), i18n };
+  // The Core's own list footer, loader and download button. Each records its
+  // calls; pager.options.onChange is the Core asking for a page.
+  const pager = { update: vi.fn(), destroy: vi.fn(), options: null };
+  const ui = {
+    pager: vi.fn((el, options) => { pager.options = options; return pager; }),
+    loading: vi.fn(() => vi.fn()),
+    exportButton: vi.fn(() => vi.fn()),
+  };
+
+  return { api, navigate: vi.fn(), notify: vi.fn(), i18n, ui, pager };
 }

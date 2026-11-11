@@ -43,7 +43,9 @@ from schemas import (
     PredefinedListOut,
     PredefinedListUpdate,
     TodoCreate,
+    TodoExport,
     TodoOut,
+    TodoPage,
     TodoUpdate,
 )
 
@@ -79,10 +81,17 @@ app = FastAPI(
 todos_router = APIRouter(prefix="/api/todos", tags=["Todos"])
 
 
-@todos_router.get("", response_model=List[TodoOut])
-def list_todos(computer_id: Optional[int] = Query(None, ge=1), who=Depends(can_read)):
-    """This user's todos, newest first; only one computer's with ``computer_id``."""
-    return models.list_todos(*owner_of(who), computer_id=computer_id)
+@todos_router.get("", response_model=TodoPage)
+def list_todos(
+    computer_id: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    who=Depends(can_read),
+):
+    """One page of this user's todos, newest first, and how many there are in all;
+    only one computer's with ``computer_id``."""
+    todos = models.list_todos(*owner_of(who), computer_id=computer_id)
+    return {"results": todos[offset:offset + limit], "total": len(todos)}
 
 
 @todos_router.post("", response_model=TodoOut, status_code=status.HTTP_201_CREATED)
@@ -109,6 +118,25 @@ def delete_todo(todo_id: int, who=Depends(can_write)):
 
 
 app.include_router(todos_router)
+
+exports_router = APIRouter(prefix="/api/exports", tags=["Exports"])
+
+
+@exports_router.get("/todos", response_model=TodoExport)
+def export_todos(who=Depends(can_read)):
+    """This user's todos as the generic document Core turns into csv or xlsx.
+
+    Core calls this on the user's behalf (POST /export/plugins/todo); it is the
+    whole list, not the page on screen."""
+    todos = models.list_todos(*owner_of(who))
+    return {
+        "filename": "todos",
+        "columns": ["id", "title", "done", "computer_id"],
+        "rows": [[t.id, t.title, t.done, t.computer_id] for t in todos],
+    }
+
+
+app.include_router(exports_router)
 
 # ---------------------------------------------------------------------------
 # Predefined lists - reusable templates, kept with the same identity and

@@ -27,7 +27,7 @@ def test_listing_by_computer_shows_only_that_computers_todos(client):
     disk = _add(client, "Replace the disk", computer_id=42)
     _add(client, "Reimage", computer_id=7)
 
-    listed = client.get("/api/todos?computer_id=42", headers=as_user()).json()
+    listed = client.get("/api/todos?computer_id=42", headers=as_user()).json()["results"]
 
     assert [todo["id"] for todo in listed] == [disk["id"]]
 
@@ -36,14 +36,14 @@ def test_listing_without_a_computer_still_shows_every_todo(client):
     _add(client, "Buy milk")
     _add(client, "Replace the disk", computer_id=42)
 
-    assert len(client.get("/api/todos", headers=as_user()).json()) == 2
+    assert len(client.get("/api/todos", headers=as_user()).json()["results"]) == 2
 
 
 def test_listing_by_computer_is_still_scoped_to_the_caller(client):
     _add(client, "Alice's", computer_id=42, subject="17")
     _add(client, "Bob's", computer_id=42, subject="18", username="bob")
 
-    listed = client.get("/api/todos?computer_id=42", headers=as_user(subject="18")).json()
+    listed = client.get("/api/todos?computer_id=42", headers=as_user(subject="18")).json()["results"]
 
     assert [todo["title"] for todo in listed] == ["Bob's"]
 

@@ -48,6 +48,21 @@ class TodoOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TodoPage(BaseModel):
+    """One page of todos, with the count over the whole (filtered) list."""
+
+    results: List[TodoOut]
+    total: int
+
+
+class TodoExport(BaseModel):
+    """The document Core builds a spreadsheet from (POST /export/plugins/todo)."""
+
+    filename: str
+    columns: List[str]
+    rows: List[List[Optional[object]]]
+
+
 # ---------------------------------------------------------------------------
 # Predefined lists
 # ---------------------------------------------------------------------------
