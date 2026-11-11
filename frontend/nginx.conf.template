@@ -1,40 +1,43 @@
-# The app's single entry point - the address Cobalt Core is given as
-# COBALT_APP_URL_TODO. Core's /apps/todo/ proxy forwards everything here:
+# The gateway's only server: the app's single entry point for Cobalt Core. Core's /apps/todo/
+# proxy forwards everything here:
 #
 #   /api/...    -> the FastAPI backend, Core's Authorization header untouched
-#   everything  -> the built UI: the page, remoteEntry.js, the TodoApp module
+#   everything  -> the built UI: the page, remoteEntry.js, the federated modules
 #
-# One address for both is what lets Core serve the page and its API from the
-# same path, so the browser only ever talks to Core, on Core's own origin, with
-# Core's session cookie. Rendered at container start by the nginx image's
-# envsubst step: only ${TODO_BACKEND_URL} is replaced; nginx's own $variables
-# are left alone because they are not set in the environment.
+# One address for both is what lets Core serve the page and its API from the same path, so the
+# browser only ever talks to Core, on Core's own origin, with Core's session cookie. Rendered at
+# container start by the nginx image's envsubst step: only ${TODO_BACKEND_URL} is replaced; nginx's
+# own $variables are left alone because they are not set in the environment.
 
 server {
-    listen 80;
+    # The image runs nginx without root, so it listens above 1024 (ADR-10).
+    listen 8080;
     server_name _;
+    server_tokens off;
     root /usr/share/nginx/html;
 
-    # The API. Every request header is passed on as received - including the
-    # Authorization Core adds and its X-Correlation-ID. The backend verifies the
-    # token; this layer decides nothing.
+    # The API. Every request header is passed on as received - including the Authorization Core
+    # adds and its X-Correlation-ID. The backend verifies the token; this layer decides nothing.
     location /api/ {
         proxy_pass ${TODO_BACKEND_URL};
         proxy_http_version 1.1;
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 30s;
+        # Core gives up after 30 seconds, so waiting longer here helps nobody.
         proxy_read_timeout 30s;
         client_max_body_size 1m;
     }
 
     # Hashed file names change with every build, so these may be kept.
     location /assets/ {
-        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
         try_files $uri =404;
     }
 
-    # The page and the federation entry points name those hashed files, so a
-    # stale copy would load the previous release: always revalidate.
+    # The page and the federation entry points name those hashed files, so a stale copy would
+    # load the previous release: always revalidate.
     location / {
-        add_header Cache-Control "no-cache";
+        add_header Cache-Control "no-cache" always;
         try_files $uri $uri/ /index.html;
     }
 }

@@ -1,6 +1,6 @@
 // Builds todo-translation-keys.xlsx from todo-translation-keys.csv.
 //
-//   npm run translation-keys          (from frontend/)
+//   pnpm translation-keys              (from frontend/)
 //
 // The CSV is the inventory: keys only. The workbook is the same keys in one
 // column, for preparing the import into the translation database. It holds

@@ -53,14 +53,7 @@ class TodoPage(BaseModel):
 
     results: List[TodoOut]
     total: int
-
-
-class TodoExport(BaseModel):
-    """The document Core builds a spreadsheet from (POST /export/plugins/todo)."""
-
-    filename: str
-    columns: List[str]
-    rows: List[List[Optional[object]]]
+    open: int  # not done, over the whole (filtered) list
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,19 @@ def _next_id(rows: List[dict]) -> int:
     return max((int(row["id"]) for row in rows), default=0) + 1
 
 
+def _made_by(rows: List[dict], load, tenant_id: str, owner: str,
+             approval_request_id: Optional[str]):
+    """The record of this owner that an approval already created, or None."""
+    if not approval_request_id:
+        return None
+    for row in rows:
+        record = load(row)
+        if (record.approval_request_id == approval_request_id
+                and record.belongs_to(tenant_id, owner)):
+            return record
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Todos
 # ---------------------------------------------------------------------------
@@ -47,6 +60,9 @@ class Todo:
     # Details page. Core's own id for it, kept as given; None for a todo that
     # is about no computer. Rows from before this field have none.
     computer_id: Optional[int] = None
+    # The approval Core replayed to create it, so a second replay of the same
+    # approval returns this todo instead of adding another. Never shown.
+    approval_request_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -64,6 +80,7 @@ class Todo:
             tenant_id=str(raw.get("tenant_id") or ""),
             owner=str(raw.get("owner") or ""),
             computer_id=None if computer_id is None else int(computer_id),
+            approval_request_id=raw.get("approval_request_id"),
         )
 
 
@@ -79,12 +96,21 @@ def list_todos(tenant_id: str, owner: str,
 
 
 def create_todo(tenant_id: str, owner: str, title: str,
-                computer_id: Optional[int] = None) -> Todo:
-    """Append a new todo for this person and return it."""
+                computer_id: Optional[int] = None,
+                approval_request_id: Optional[str] = None) -> Todo:
+    """Append a new todo for this person and return it.
+
+    With ``approval_request_id``, the todo that approval already created, if
+    there is one, is returned instead: Core may deliver an approval twice.
+    """
     with storage_lock:
         rows = read_todos()
+        done_before = _made_by(rows, Todo.from_dict, tenant_id, owner, approval_request_id)
+        if done_before:
+            return done_before
         todo = Todo(id=_next_id(rows), title=title, done=False,
-                    tenant_id=tenant_id, owner=owner, computer_id=computer_id)
+                    tenant_id=tenant_id, owner=owner, computer_id=computer_id,
+                    approval_request_id=approval_request_id)
         rows.append(todo.to_dict())
         write_todos(rows)
     return todo
@@ -139,6 +165,7 @@ class PredefinedList:
     items: List[str] = field(default_factory=list)
     tenant_id: str = ""
     owner: str = ""
+    approval_request_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -154,6 +181,7 @@ class PredefinedList:
             items=[str(item) for item in raw.get("items") or []],
             tenant_id=str(raw.get("tenant_id") or ""),
             owner=str(raw.get("owner") or ""),
+            approval_request_id=raw.get("approval_request_id"),
         )
 
 
@@ -164,13 +192,19 @@ def list_predefined_lists(tenant_id: str, owner: str) -> List[PredefinedList]:
     return sorted(mine, key=lambda l: l.id, reverse=True)
 
 
-def create_predefined_list(tenant_id: str, owner: str,
-                           name: str, items: List[str]) -> PredefinedList:
-    """Append a new predefined list for this person and return it."""
+def create_predefined_list(tenant_id: str, owner: str, name: str, items: List[str],
+                           approval_request_id: Optional[str] = None) -> PredefinedList:
+    """Append a new predefined list for this person and return it; with
+    ``approval_request_id``, the list that approval already created, if any."""
     with storage_lock:
         rows = read_predefined_lists()
+        done_before = _made_by(rows, PredefinedList.from_dict, tenant_id, owner,
+                               approval_request_id)
+        if done_before:
+            return done_before
         made = PredefinedList(id=_next_id(rows), name=name, items=list(items),
-                              tenant_id=tenant_id, owner=owner)
+                              tenant_id=tenant_id, owner=owner,
+                              approval_request_id=approval_request_id)
         rows.append(made.to_dict())
         write_predefined_lists(rows)
     return made

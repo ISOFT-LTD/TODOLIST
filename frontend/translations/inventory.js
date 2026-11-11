@@ -11,7 +11,7 @@
  * which rows that database needs; it is not a catalog and cannot serve as one.
  *
  * The CSV is the source: a text file that a review can read and a diff can
- * show. The workbook is built from it (`npm run translation-keys`) and a
+ * show. The workbook is built from it (`pnpm translation-keys`) and a
  * test checks that the two hold the same keys.
  *
  * Node only. Nothing the plugin ships imports this file.

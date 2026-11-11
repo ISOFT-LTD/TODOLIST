@@ -25,8 +25,19 @@ from cobalt_identity.testing import LocalIssuer  # noqa: E402
 
 TENANT = "itec-test"
 AUDIENCE = "todo"
-READ = f"{AUDIENCE}.todo.read"
-WRITE = f"{AUDIENCE}.todo.all"
+
+# Core's decisions, as its token carries them: keyed without the app's id.
+EVERY_ACTION = {
+    key: "ALLOW" for key in (
+        "todo.view", "todo.create", "todo.update", "todo.delete",
+        "predefined.view", "predefined.create", "predefined.update", "predefined.delete",
+    )
+}
+READ_ONLY = {
+    **{key: "DENY" for key in EVERY_ACTION},
+    "todo.view": "ALLOW",
+    "predefined.view": "ALLOW",
+}
 
 ISSUER = LocalIssuer(tenant_id=TENANT)
 
@@ -60,8 +71,18 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def as_user(subject="17", *, permissions=(READ, WRITE), username="alice", **overrides):
+def token(subject="17", *, decisions=None, username="alice", **overrides):
+    """A token as Core mints it for one call: ``action_permissions`` holds the
+    caller's decision on each action, ``actions`` the allowed ones."""
+    decisions = EVERY_ACTION if decisions is None else decisions
+    claims = {
+        "action_permissions": dict(decisions),
+        "actions": sorted(key for key, decision in decisions.items() if decision == "ALLOW"),
+        **overrides,
+    }
+    return ISSUER.mint(subject, claims.pop("audience", AUDIENCE), username=username, **claims)
+
+
+def as_user(subject="17", **kwargs):
     """Headers carrying a fresh token for one call - Core mints one per call."""
-    token = ISSUER.mint(subject, overrides.pop("audience", AUDIENCE),
-                        permissions=permissions, username=username, **overrides)
-    return {"Authorization": f"Bearer {token}"}
+    return {"Authorization": f"Bearer {token(subject, **kwargs)}"}

@@ -21,7 +21,7 @@ it('lists every todo, saying which computer one is about', async () => {
   const unmount = mount(el, { sdk: { api, i18n: fakeI18n() }, path: '' });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  expect(api.get).toHaveBeenCalledWith('/todos?limit=200&offset=0'); // no ui.pager: one request, no footer
+  expect(api.get).toHaveBeenCalledWith('/todos?limit=200&offset=0');
   expect([...el.shadowRoot.querySelectorAll('li .tag')].map((n) => n.textContent)).toEqual([`${en('todo.computer')} 42`]);
 
   el.shadowRoot.querySelector('.new-title').value = 'Call IT';
@@ -32,9 +32,11 @@ it('lists every todo, saying which computer one is about', async () => {
   el.remove();
 });
 
-// The Core's own pager, loader and download button, through sdk.ui.
+// The Core's table mode, list footer and loader, through sdk.ui. The page keeps
+// its own total and offset; the Core draws the footer from them.
 
 import { settle, fakeSdk } from './testing/sdk.js';
+import { mountTodoList } from './pages/todo-list.js';
 
 const manyTodos = (n) => Array.from({ length: n }, (_, i) => ({ id: n - i, title: `todo ${n - i}` }));
 const shown = (el) => [...el.shadowRoot.querySelectorAll('li .title')].map((node) => node.textContent);
@@ -47,44 +49,62 @@ async function standalone(sdk) {
   return { el, unmount };
 }
 
-it('shows the first page and tells the pager what it holds', async () => {
+it('shows the first page and hands the Core this tables numbers', async () => {
   const sdk = fakeSdk({ todos: manyTodos(25) });
   const { el, unmount } = await standalone(sdk);
 
   expect(sdk.api.get).toHaveBeenCalledWith('/todos?limit=10&offset=0');
   expect(shown(el)).toHaveLength(10);
-  expect(sdk.pager.options.pageSize).toBe(10);
-  expect(sdk.pager.update).toHaveBeenLastCalledWith({ total: 25, loaded: 10, loading: false });
+  expect(sdk.pagination.last()).toMatchObject({
+    mode: 'pagination', total: 25, offset: 0, loaded: 10, pageSize: 10, loading: false,
+  });
   unmount();
 });
 
-it('replaces the rows when the pager asks for another page', async () => {
+it('replaces the rows when the Core reports a page', async () => {
   const sdk = fakeSdk({ todos: manyTodos(25) });
   const { el, unmount } = await standalone(sdk);
 
-  sdk.pager.options.onChange({ offset: 20, limit: 10, append: false });
+  sdk.pagination.last().onPage(20);
   await settle();
 
   expect(shown(el)).toEqual(['todo 5', 'todo 4', 'todo 3', 'todo 2', 'todo 1']);
+  expect(sdk.pagination.last()).toMatchObject({ offset: 20, loaded: 5 });
   unmount();
 });
 
-it('adds to the rows when the pager asks to load more', async () => {
+it('adds to the rows when the Core reports Load More', async () => {
   const sdk = fakeSdk({ todos: manyTodos(25) });
+  sdk.ui.setMode('loadMore');
   const { el, unmount } = await standalone(sdk);
+  expect(sdk.pagination.last().mode).toBe('loadMore');
 
-  sdk.pager.options.onChange({ offset: 10, limit: 10, append: true });
+  sdk.pagination.last().onLoadMore();
   await settle();
 
   expect(shown(el)).toHaveLength(20);
-  expect(sdk.pager.update).toHaveBeenLastCalledWith({ total: 25, loaded: 20, loading: false });
+  expect(sdk.pagination.last()).toMatchObject({ total: 25, loaded: 20 });
+  unmount();
+});
+
+it('follows the user changing the table mode, from the first page', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(25) });
+  const { el, unmount } = await standalone(sdk);
+  sdk.pagination.last().onPage(10);
+  await settle();
+
+  sdk.ui.setMode('loadMore');
+  await settle();
+
+  expect(sdk.pagination.last()).toMatchObject({ mode: 'loadMore', offset: 0, loaded: 10 });
+  expect(shown(el)[0]).toBe('todo 25');
   unmount();
 });
 
 it('steps back a page when a delete empties the last one', async () => {
   const sdk = fakeSdk({ todos: manyTodos(11) });
   const { el, unmount } = await standalone(sdk);
-  sdk.pager.options.onChange({ offset: 10, limit: 10, append: false });
+  sdk.pagination.last().onPage(10);
   await settle();
   expect(shown(el)).toEqual(['todo 1']);
 
@@ -92,8 +112,23 @@ it('steps back a page when a delete empties the last one', async () => {
   await settle();
 
   expect(shown(el)).toHaveLength(10);
-  expect(sdk.pager.update).toHaveBeenCalledWith(expect.objectContaining({ offset: 0 }));
+  expect(sdk.pagination.last()).toMatchObject({ offset: 0, total: 10 });
   unmount();
+});
+
+it('keeps each tables numbers apart when a plugin has two', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(25) });
+  const [a, b] = [document.createElement('div'), document.createElement('div')];
+  document.body.append(a, b);
+  const stopA = mountTodoList(a.attachShadow({ mode: 'open' }), { api: sdk.api, i18n: sdk.i18n, ui: sdk.ui });
+  const stopB = mountTodoList(b.attachShadow({ mode: 'open' }), { api: sdk.api, i18n: sdk.i18n, ui: sdk.ui, computerId: 7 });
+  await settle();
+
+  const [forA, forB] = [a, b].map((host) => sdk.pagination.calls.filter(([slot]) => host.shadowRoot.contains(slot)).at(-1)[1]);
+  expect(forA).toMatchObject({ total: 25, loaded: 10 });
+  expect(forB).toMatchObject({ total: 0, loaded: 0 });
+  stopA();
+  stopB();
 });
 
 it('draws the Core loader while the first page loads, and erases it', async () => {
@@ -107,30 +142,20 @@ it('draws the Core loader while the first page loads, and erases it', async () =
   unmount();
 });
 
-it('offers the Core download button on the standalone page only', async () => {
-  const sdk = fakeSdk({ todos: manyTodos(3) });
-  const { unmount } = await standalone(sdk);
-  expect(sdk.ui.exportButton).toHaveBeenCalledWith(expect.any(HTMLElement), { path: '/api/exports/todos' });
-  unmount();
+it('without a pagination footer, asks for as many rows as one request carries', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(25) });
+  const { el, unmount } = await standalone({ ...sdk, ui: undefined });
 
-  const scoped = fakeSdk({ todos: manyTodos(3) });
-  const el = document.createElement('div');
-  document.body.append(el);
-  const { mountTodoList } = await import('./pages/todo-list.js');
-  const root = el.attachShadow({ mode: 'open' });
-  const stop = mountTodoList(root, { api: scoped.api, i18n: scoped.i18n, ui: scoped.ui, computerId: 7 });
-  await settle();
-  expect(scoped.ui.exportButton).not.toHaveBeenCalled();
-  stop();
+  expect(sdk.api.get).toHaveBeenCalledWith('/todos?limit=200&offset=0');
+  expect(shown(el)).toHaveLength(25);
+  unmount();
 });
 
 it('erases what the Core drew when the page goes', async () => {
   const sdk = fakeSdk({ todos: manyTodos(3) });
-  const stopExport = vi.fn();
-  sdk.ui.exportButton.mockReturnValue(stopExport);
   const { unmount } = await standalone(sdk);
 
   unmount();
-  expect(sdk.pager.destroy).toHaveBeenCalledTimes(1);
-  expect(stopExport).toHaveBeenCalledTimes(1);
+  expect(sdk.pagination.erase).toHaveBeenCalled();
+  expect(sdk.ui.tableMode).toBeDefined();
 });

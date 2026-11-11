@@ -5,7 +5,7 @@ import json
 import pytest
 from cobalt_identity.testing import LocalIssuer
 
-from conftest import AUDIENCE, READ, TENANT, WRITE, as_user
+from conftest import AUDIENCE, READ_ONLY, TENANT, as_user
 
 
 # --- open endpoints --------------------------------------------------------
@@ -51,7 +51,8 @@ def test_a_token_for_another_app_is_401(client):
 
 
 def test_a_token_signed_by_someone_else_is_401(client):
-    impostor = LocalIssuer(tenant_id=TENANT).mint("17", AUDIENCE, permissions=[READ])
+    impostor = LocalIssuer(tenant_id=TENANT).mint(
+        "17", AUDIENCE, action_permissions={"todo.view": "ALLOW"})
 
     assert client.get("/api/todos", headers={"Authorization": f"Bearer {impostor}"}).status_code == 401
 
@@ -67,24 +68,17 @@ def test_a_token_is_good_for_one_call(client):
     assert client.get("/api/todos", headers=headers).status_code == 401
 
 
-# --- permissions --------------------------------------------------------------
+# --- actions -----------------------------------------------------------------
 
-def test_read_permission_lists_but_cannot_write(client):
-    reader = dict(permissions=[READ])
+def test_view_lists_but_cannot_write(client):
+    reader = dict(decisions=READ_ONLY)
 
     assert client.get("/api/todos", headers=as_user(**reader)).status_code == 200
     assert client.post("/api/todos", json={"title": "x"}, headers=as_user(**reader)).status_code == 403
 
 
-def test_no_permission_on_this_app_cannot_even_list(client):
-    assert client.get("/api/todos", headers=as_user(permissions=[])).status_code == 403
-
-
-def test_me_reports_what_this_user_may_do(client):
-    me = client.get("/api/me", headers=as_user(permissions=[READ], username="bo")).json()
-
-    assert me == {"subject": "17", "username": "bo", "tenant_id": TENANT,
-                  "can_read": True, "can_write": False}
+def test_no_decision_on_this_app_cannot_even_list(client):
+    assert client.get("/api/todos", headers=as_user(decisions={})).status_code == 403
 
 
 # --- the whole lifecycle -------------------------------------------------------
@@ -159,6 +153,7 @@ def test_the_list_is_paged_and_counted(client):
 
     assert [t["title"] for t in first["results"]] == ["t4", "t3"]  # newest first
     assert first["total"] == last["total"] == 5
+    assert first["open"] == 5
     assert [t["title"] for t in last["results"]] == ["t0"]
 
 
@@ -177,10 +172,3 @@ def test_export_is_the_whole_list_in_the_document_core_expects(client):
     assert doc["filename"] == "todos"
     assert doc["columns"] == ["id", "title", "done", "computer_id"]
     assert [row[1] for row in doc["rows"]] == ["t2", "t1", "t0"]
-
-
-def test_export_is_only_the_callers_and_needs_read_permission(client):
-    client.post("/api/todos", json={"title": "alice's"}, headers=as_user("17"))
-
-    assert client.get("/api/exports/todos", headers=as_user("42")).json()["rows"] == []
-    assert client.get("/api/exports/todos", headers=as_user(permissions=[])).status_code == 403

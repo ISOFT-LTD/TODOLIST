@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo Plugin Backend Changes</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #5f6b7a;
+      --line: #dfe5ec;
+      --panel: #f7f9fc;
+      --accent: #2458c6;
+      --accent-soft: #eaf0ff;
+      --success: #176b45;
+      --success-soft: #e8f7ef;
+      --warning: #8a5200;
+      --warning-soft: #fff5dd;
+      --code: #111827;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #fff;
+      font: 16px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      color: #fff;
+      background: linear-gradient(135deg, #173b85, #2563d9);
+      padding: 56px 24px 48px;
+    }
+
+    header .inner,
+    main {
+      width: min(1080px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      opacity: .82;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(32px, 5vw, 52px);
+      line-height: 1.08;
+    }
+
+    header p {
+      max-width: 760px;
+      margin: 18px 0 0;
+      font-size: 18px;
+      color: #e7efff;
+    }
+
+    main { padding: 36px 0 72px; }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+
+    nav a {
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    section { margin-top: 42px; }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 27px;
+      line-height: 1.25;
+    }
+
+    h3 { margin: 26px 0 8px; font-size: 19px; }
+
+    p { margin: 10px 0; }
+
+    code {
+      font: .92em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #eef1f5;
+      border-radius: 4px;
+      padding: 2px 5px;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 14px 0;
+      padding: 18px;
+      color: #e5edf8;
+      background: var(--code);
+      border-radius: 10px;
+      font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    pre code { padding: 0; color: inherit; background: none; }
+
+    .summary-grid,
+    .limits {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .card strong { display: block; margin-bottom: 4px; }
+    .card p { margin: 0; color: var(--muted); }
+
+    .callout {
+      margin: 20px 0;
+      padding: 16px 18px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 0 8px 8px 0;
+    }
+
+    .callout.success {
+      border-color: var(--success);
+      background: var(--success-soft);
+    }
+
+    .callout.warning {
+      border-color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .flow div {
+      position: relative;
+      min-height: 112px;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+    }
+
+    .flow div:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 37px;
+      right: -18px;
+      z-index: 1;
+      color: var(--accent);
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .step {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+    }
+
+    th, td {
+      padding: 11px 12px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th { background: var(--panel); }
+    ul, ol { padding-left: 24px; }
+    li + li { margin-top: 6px; }
+
+    footer {
+      margin-top: 52px;
+      padding-top: 20px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    @media (max-width: 820px) {
+      .flow { grid-template-columns: 1fr; }
+      .flow div { min-height: 0; }
+      .flow div:not(:last-child)::after {
+        content: "↓";
+        top: auto;
+        right: 50%;
+        bottom: -22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="inner">
+      <p class="eyebrow">Cobalt application integration</p>
+      <h1>Todo Plugin Backend Changes</h1>
+      <p>
+        Reference for the Todo export provider and the create-todo notification
+        header introduced in <code>backend/main.py</code>.
+      </p>
+    </div>
+  </header>
+
+  <main>
+    <nav aria-label="Page sections">
+      <a href="#overview">Overview</a>
+      <a href="#export-route">Export route</a>
+      <a href="#flow">Processing flow</a>
+      <a href="#security">Security</a>
+      <a href="#limits">Limits</a>
+      <a href="#notification">Notification header</a>
+      <a href="#operations">Operations</a>
+    </nav>
+
+    <section id="overview">
+      <h2>Overview</h2>
+      <div class="summary-grid">
+        <div class="card">
+          <strong>New provider endpoint</strong>
+          <p><code>GET /api/exports/todos</code> returns structured Todo data to Core.</p>
+        </div>
+        <div class="card">
+          <strong>Core owns file generation</strong>
+          <p>The plugin returns JSON. Core's existing Celery worker creates CSV or XLSX files.</p>
+        </div>
+        <div class="card">
+          <strong>Delegated authorization</strong>
+          <p>The route requires the <code>todo.view</code> action from Core's delegated JWT.</p>
+        </div>
+        <div class="card">
+          <strong>Create notification</strong>
+          <p>A successful Todo creation now returns <code>X-Cobalt-Admin-Notification</code>.</p>
+        </div>
+      </div>
+
+      <div class="callout success">
+        <strong>Key boundary:</strong> the Todo plugin does not connect to Redis,
+        does not register Celery tasks, and does not write export files. It only
+        supplies a bounded data document to trusted Core.
+      </div>
+    </section>
+
+    <section id="export-route">
+      <h2>Todo export provider</h2>
+
+      <table>
+        <tbody>
+          <tr><th scope="row">Method</th><td><code>GET</code></td></tr>
+          <tr><th scope="row">Plugin path</th><td><code>/api/exports/todos</code></td></tr>
+          <tr><th scope="row">Required action</th><td><code>todo.view</code></td></tr>
+          <tr><th scope="row">Side effects</th><td>None; this is a read-only provider route.</td></tr>
+          <tr><th scope="row">Caller</th><td>Cobalt Core using a short-lived delegated JWT.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Implementation</h3>
+      <pre><code>@exports_router.get("/todos")
+def export_todos(who=Depends(require_delegated_action(READ_TODO))):
+    todos = models.list_todos(*owner_of(who))
+    return {
+        "filename": "todos",
+        "columns": ["id", "title", "done", "computer_id"],
+        "rows": [
+            [todo.id, todo.title, todo.done, todo.computer_id]
+            for todo in todos
+        ],
+    }</code></pre>
+
+      <h3>Response contract</h3>
+      <pre><code>{
+  "filename": "todos",
+  "columns": ["id", "title", "done", "computer_id"],
+  "rows": [
+    [17, "Replace the disk", false, 42],
+    [16, "Call the supplier", true, null]
+  ]
+}</code></pre>
+
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>filename</code></td>
+            <td>Safe base name used by Core when the generated file is downloaded.</td>
+          </tr>
+          <tr>
+            <td><code>columns</code></td>
+            <td>Ordered spreadsheet and CSV header names.</td>
+          </tr>
+          <tr>
+            <td><code>rows</code></td>
+            <td>Ordered scalar values. Every row must contain one value per column.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="flow">
+      <h2>Export processing flow</h2>
+      <div class="flow" role="list" aria-label="Todo export processing flow">
+        <div role="listitem">
+          <span class="step">Step 1</span>
+          The plugin UI posts an export request to Core.
+        </div>
+        <div role="listitem">
+          <span class="step">Step 2</span>
+          Core verifies the browser session and application access.
+        </div>
+        <div role="listitem">
+          <span class="step">Step 3</span>
+          Core calls <code>/api/exports/todos</code> with delegated identity.
+        </div>
+        <div role="listitem">
+          <span class="step">Step 4</span>
+          Core validates the document and queues its shared export task.
+        </div>
+        <div role="listitem">
+          <span class="step">Step 5</span>
+          The UI polls Core and downloads the generated XLSX file.
+        </div>
+      </div>
+
+      <h3>Core request used by the frontend</h3>
+      <pre><code>POST /export/plugins/todo
+Content-Type: application/json
+
+{
+  "path": "/api/exports/todos",
+  "format": "xlsx"
+}</code></pre>
+
+      <p>
+        The route above belongs to Core, not the Todo backend. Core uses the
+        supplied application-relative path to fetch the export document and
+        sends the validated rows to <code>export_plugin_data_task</code> on the
+        existing <code>exports</code> Celery queue.
+      </p>
+    </section>
+
+    <section id="security">
+      <h2>Authorization and data isolation</h2>
+      <ol>
+        <li>
+          <code>require_delegated_action(READ_TODO)</code> rejects calls without
+          a valid Core-issued token containing <code>todo.view</code>.
+        </li>
+        <li>
+          <code>owner_of(who)</code> derives the tenant and subject from the
+          verified delegated principal.
+        </li>
+        <li>
+          <code>models.list_todos(...)</code> reads only records belonging to
+          that tenant and subject.
+        </li>
+        <li>
+          The browser never receives or forwards Core's delegated JWT. Core
+          creates it server-side for the application call.
+        </li>
+      </ol>
+
+      <div class="callout warning">
+        Do not make the provider route public and do not replace
+        <code>owner_of(who)</code> with a client-supplied user identifier. Either
+        change would break the export's authorization boundary.
+      </div>
+    </section>
+
+    <section id="limits">
+      <h2>Core validation limits</h2>
+      <p>
+        Core validates the plugin response before placing it on the worker
+        queue. The Todo response must remain within these limits.
+      </p>
+      <div class="limits">
+        <div class="card"><strong>Document size</strong><p>Maximum 5 MiB.</p></div>
+        <div class="card"><strong>Columns</strong><p>Between 1 and 100.</p></div>
+        <div class="card"><strong>Rows</strong><p>Maximum 10,000.</p></div>
+        <div class="card"><strong>Names</strong><p>Filename and column names are limited to 120 characters.</p></div>
+        <div class="card"><strong>String cells</strong><p>Maximum 32,767 characters.</p></div>
+        <div class="card"><strong>Cell types</strong><p>String, number, boolean, or null only.</p></div>
+      </div>
+      <p>
+        Core also requires equal-width rows, supports only <code>csv</code> and
+        <code>xlsx</code>, and neutralizes spreadsheet formula prefixes before
+        writing any cell.
+      </p>
+    </section>
+
+    <section id="notification">
+      <h2>Create-Todo notification header</h2>
+      <p>
+        The existing <code>POST /api/todos</code> route now accepts FastAPI's
+        <code>Response</code> object, creates the Todo normally, and adds this
+        response header:
+      </p>
+      <pre><code>X-Cobalt-Admin-Notification: todo_created</code></pre>
+
+      <pre><code>@todos_router.post("", response_model=TodoOut, status_code=201)
+def create_todo(todo: TodoCreate, response: Response, who=...):
+    created = models.create_todo(
+        *owner_of(who), todo.title, computer_id=todo.computer_id
+    )
+    response.headers["X-Cobalt-Admin-Notification"] = "todo_created"
+    return created</code></pre>
+
+      <p>
+        The response body and the <code>todo.create</code> authorization rule are
+        unchanged. The header is metadata that Core can use to refresh or
+        display administrative notifications.
+      </p>
+    </section>
+
+    <section id="operations">
+      <h2>Operational checklist</h2>
+      <ul>
+        <li>Deploy the updated Todo backend before enabling the frontend export button.</li>
+        <li>Deploy the Core export route and worker task on every Core instance.</li>
+        <li>Ensure a worker consumes the existing <code>exports</code> queue.</li>
+        <li>Grant users read access to the Todo application and the <code>todo.view</code> action.</li>
+        <li>Keep the plugin response below Core's documented validation limits.</li>
+        <li>Use Core's status and download routes; do not expose plugin storage or worker credentials.</li>
+      </ul>
+
+      <h3>Failure behavior</h3>
+      <table>
+        <thead>
+          <tr><th>Condition</th><th>Expected result</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Missing or invalid delegated identity</td><td>The plugin rejects the provider call.</td></tr>
+          <tr><td>Missing <code>todo.view</code></td><td>The plugin returns insufficient permission.</td></tr>
+          <tr><td>Invalid or oversized document</td><td>Core refuses the export before queueing it.</td></tr>
+          <tr><td>Worker failure</td><td>Core marks the export as failed without exposing internal exception details.</td></tr>
+          <tr><td>Successful export</td><td>Core returns the file through its existing owned download route.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      Todo Plugin backend integration reference · Updated 20 October 2026
+    </footer>
+  </main>
+</body>
+</html>

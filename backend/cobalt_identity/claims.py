@@ -10,7 +10,7 @@ Mirrors AUTHENTICATION_MICROSERVICE_ANALYSIS.md section 4.2::
     preferred_username  display/context only, never a join key
     tenant_id           the deployment's tenant identifier
     roles               role names Core chose to disclose to THIS audience
-    permissions         "<app_key>.<resource>.<action>" strings for THIS audience
+    actions             action keys delegated to the user for THIS audience
     sid                 the browser session's non-secret public id
     authz_ver           a fingerprint of the grants the claims were built from
     iat / nbf / exp     seconds since the epoch; exp - iat is a few minutes
@@ -34,6 +34,7 @@ REQUIRED_CLAIMS = ("iss", "sub", "aud", "exp", "iat", "jti")
 # misconfigured issuer cannot hand out long-lived credentials unnoticed.
 DEFAULT_MAX_LIFETIME_SECONDS = 600
 DEFAULT_LEEWAY_SECONDS = 30
+ACTION_PERMISSION_DECISIONS = frozenset({"ALLOW", "DENY", "REQUIRE_APPROVAL"})
 
 
 class ClaimError(ValueError):
@@ -59,6 +60,8 @@ class DelegatedIdentity:
     authz_version: Optional[str] = None
     roles: Tuple[str, ...] = ()
     permissions: FrozenSet[str] = frozenset()
+    actions: FrozenSet[str] = frozenset()
+    action_permissions: Mapping[str, str] = field(default_factory=dict)
     issued_at: int = 0
     expires_at: int = 0
     not_before: Optional[int] = None
@@ -75,6 +78,13 @@ class DelegatedIdentity:
 
     def has_role(self, name: str) -> bool:
         return name in self.roles
+
+    def has_action(self, name: str) -> bool:
+        return self.action_permission(name) == "ALLOW"
+
+    def action_permission(self, name: str) -> str:
+        """Return Core's decision for an action; an omitted action is denied."""
+        return self.action_permissions.get(name, "DENY")
 
 
 def _require_text(payload: Mapping[str, Any], name: str) -> str:
@@ -111,6 +121,32 @@ def _string_list(payload: Mapping[str, Any], name: str) -> Tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ClaimError(f"invalid_{name}", f"claim {name!r} must be a list of strings")
     return tuple(value)
+
+
+def _action_permissions(payload: Mapping[str, Any]) -> Dict[str, str]:
+    value = payload.get("action_permissions")
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ClaimError(
+            "invalid_action_permissions",
+            "claim 'action_permissions' must be an object",
+        )
+
+    decisions: Dict[str, str] = {}
+    for action, decision in value.items():
+        if not isinstance(action, str) or not action.strip():
+            raise ClaimError(
+                "invalid_action_permissions",
+                "claim 'action_permissions' keys must be non-empty strings",
+            )
+        if not isinstance(decision, str) or decision not in ACTION_PERMISSION_DECISIONS:
+            raise ClaimError(
+                "invalid_action_permissions",
+                "action permission decisions must be ALLOW, DENY, or REQUIRE_APPROVAL",
+            )
+        decisions[action] = decision
+    return decisions
 
 
 def audience_matches(claimed: Any, expected: str) -> bool:
@@ -184,6 +220,8 @@ def validate_claims(
         authz_version=_optional_text(payload, "authz_ver"),
         roles=_string_list(payload, "roles"),
         permissions=frozenset(_string_list(payload, "permissions")),
+        actions=frozenset(_string_list(payload, "actions")),
+        action_permissions=_action_permissions(payload),
         issued_at=issued_at,
         expires_at=expires_at,
         not_before=not_before,
@@ -205,6 +243,8 @@ def build_claims(
     session_id: Optional[str] = None,
     roles: Iterable[str] = (),
     permissions: Iterable[str] = (),
+    actions: Iterable[str] = (),
+    action_permissions: Optional[Mapping[str, str]] = None,
     authz_version: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The issuer-side twin of validate_claims: a payload the contract accepts.
@@ -212,6 +252,12 @@ def build_claims(
     Used by Core to mint, and by LocalIssuer in tests, so the shape cannot
     drift between the two.
     """
+    action_list = sorted(set(actions))
+    decisions = (
+        dict(action_permissions)
+        if action_permissions is not None
+        else {action: "ALLOW" for action in action_list}
+    )
     claims: Dict[str, Any] = {
         "iss": issuer,
         "sub": subject,
@@ -223,6 +269,8 @@ def build_claims(
         "exp": issued_at + int(lifetime_seconds),
         "roles": sorted(set(roles)),
         "permissions": sorted(set(permissions)),
+        "actions": action_list,
+        "action_permissions": decisions,
     }
     if username is not None:
         claims["preferred_username"] = username

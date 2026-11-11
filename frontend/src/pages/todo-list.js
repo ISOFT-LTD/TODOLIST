@@ -1,13 +1,15 @@
 /**
  * The To do List page: this user's todos, with add, edit, tick and delete.
  *
- *   const teardown = mountTodoList(shadowRoot, { api, i18n });
- *   const teardown = mountTodoList(shadowRoot, { api, i18n, computerId: 42 });
+ *   const teardown = mountTodoList(shadowRoot, { api, i18n, ui });
+ *   const teardown = mountTodoList(shadowRoot, { api, i18n, ui, computerId: 42 });
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
- * place) and talks to the API only through `api` (see todo-app.js). The Core's
- * own pager, loader and download button come through `ui`: the list is shown a
- * page at a time, or with Load More, as the user's table-mode setting says. Its
+ * place) and talks to the Todo API through `api` (see todo-app.js). The
+ * standalone export button uses the Core origin that served this module. The
+ * Core's own list footer and loader come through `ui`: the table is shown a
+ * page at a time, or with Load More, as the user's table-mode setting says,
+ * and this page keeps its own total and offset. Its
  * words come from `i18n`, the application's translations, through the
  * plugin's translation helper: a change of language redraws them in place.
  *
@@ -15,21 +17,37 @@
  * Computer Details tab shows: only that computer's todos, and new ones are
  * added to it. Without, it is the standalone page: every todo, each one that
  * is about a computer saying which.
+ *
+ * An empty list shows the Core's empty state through `ui` (sdk.ui), where
+ * the host gives one (see empty-state.js).
  */
 
 import { createPluginTranslation } from '../plugin-translation.js';
+import { createEmptyState } from './empty-state.js';
 import { onTodosChanged } from '../todo-events.js';
+import { ACTIONS, hasAction } from '../actions.js';
+import { hidePendingApproval, showPendingApproval } from '../approval-card.js';
 import { appendHtml, describeUser, whoIsCalling } from './shared.js';
 
 const TEMPLATE = `
   <main class="todo">
-    <h1 data-i18n="todo.title"></h1>
+    <div class="page-heading">
+      <h1 data-i18n="todo.title"></h1>
+      <button type="button" class="export" data-i18n="todo.export"></button>
+    </div>
     <p class="who" hidden></p>
-    <div class="toolbar"></div>
-    <form class="add-form">
+    <form class="add-form" hidden>
       <input type="text" class="new-title" data-i18n-placeholder="todo.new-todo-placeholder" autocomplete="off" required>
       <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
+    <section class="approval-card" role="status" aria-live="polite" hidden>
+      <strong class="approval-message"></strong>
+      <div class="approval-meta">
+        <span class="approval-id"></span>
+        <span class="approval-action"></span>
+        <span class="approval-status"></span>
+      </div>
+    </section>
     <ul class="list"></ul>
     <div class="loading"></div>
     <div class="pager"></div>
@@ -37,13 +55,39 @@ const TEMPLATE = `
   </main>
 `;
 
+const CORE_ROOT = `${new URL(import.meta.url).origin}/`;
+const coreUrl = (path) => new URL(String(path).replace(/^\/+/, ''), CORE_ROOT);
+
+async function coreJson(path, options = {}) {
+  const response = await fetch(coreUrl(path), {
+    credentials: 'include',
+    ...options,
+    headers: { Accept: 'application/json', ...(options.headers || {}) },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(typeof body.detail === 'string' ? body.detail : response.statusText);
+  }
+  return response.json();
+}
+
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 const EMBEDDED_TEMPLATE = `
   <main class="todo embedded">
     <p class="who" hidden></p>
-    <form class="add-form">
+    <form class="add-form" hidden>
       <input type="text" class="new-title" data-i18n-placeholder="todo.new-computer-todo-placeholder" autocomplete="off" required>
       <button type="submit" class="primary" data-i18n="todo.add"></button>
     </form>
+    <section class="approval-card" role="status" aria-live="polite" hidden>
+      <strong class="approval-message"></strong>
+      <div class="approval-meta">
+        <span class="approval-id"></span>
+        <span class="approval-action"></span>
+        <span class="approval-status"></span>
+      </div>
+    </section>
     <ul class="list"></ul>
     <div class="loading"></div>
     <div class="pager"></div>
@@ -53,47 +97,89 @@ const EMBEDDED_TEMPLATE = `
 
 /** Rows per page, and per "Load more". */
 const PAGE_SIZE = 10;
-/** Without a pager there is no "next", so ask for as many as the service allows. */
+/** Without a pagination footer there is no "next", so ask for as many as the service allows. */
 const UNPAGED_LIMIT = 200;
-/** The service route Core exports the whole list from (see ui.exportButton). */
-const EXPORT_PATH = '/api/exports/todos';
 
-export function mountTodoList(root, { api, i18n, ui = null, computerId = null }) {
+export function mountTodoList(root, { api, i18n, ui, computerId = null }) {
   const scoped = computerId !== null;
   appendHtml(root, scoped ? EMBEDDED_TEMPLATE : TEMPLATE);
   const texts = createPluginTranslation(i18n, root);
+  const empty = createEmptyState(ui, texts);
   const listPath = scoped ? `/todos?computer_id=${encodeURIComponent(computerId)}` : '/todos';
 
   const list = root.querySelector('.list');
   const form = root.querySelector('.add-form');
   const input = root.querySelector('.new-title');
   const errorBox = root.querySelector('.error');
+  const approvalCard = root.querySelector('.approval-card');
   const who = root.querySelector('.who');
-  const toolbar = root.querySelector('.toolbar');
+  const exportButton = root.querySelector('.export');
   const loadingBox = root.querySelector('.loading');
-  const pagerBox = root.querySelector('.pager');
+  const paginationBox = root.querySelector('.pager');
 
   let destroyed = false;
   let editingId = null;
-  // Until GET /me says otherwise. The service enforces it either way.
-  let canWrite = true;
+  let canCreate = false;
+  let canUpdate = false;
+  let canDelete = false;
   let me = null;
 
   // What is on screen: `held` is the rows from `windowStart` on. A page
   // replaces it; "Load more" adds to it. `serial` drops an answer that a
-  // later request has overtaken.
+  // later request has overtaken. The total and the offset are this table's:
+  // the Core only draws the footer from them.
   let held = [];
   let total = 0;
   let windowStart = 0;
   let serial = 0;
   let busy = false;
   let stopLoader = null;
-  // An older Core has no ui.pager: show what one request can carry, no footer.
-  const pager = ui?.pager
-    ? ui.pager(pagerBox, { pageSize: PAGE_SIZE, onChange: (request) => fetchRange(request) })
-    : null;
-  const pageSize = pager ? PAGE_SIZE : UNPAGED_LIMIT;
-  const stopExport = !scoped && ui?.exportButton ? ui.exportButton(toolbar, { path: EXPORT_PATH }) : null;
+  let stopPagination = null;
+  // A Core from before ui.pagination: show what one request can carry, no footer.
+  const paged = typeof ui?.pagination === 'function';
+  const pageSize = paged ? PAGE_SIZE : UNPAGED_LIMIT;
+  // The user's own setting, the same for every table; redrawn when they change it.
+  let mode = ui?.tableMode?.() ?? 'pagination';
+  const stopMode = ui?.onTableModeChange?.(() => {
+    mode = ui.tableMode();
+    loadFirst();
+  });
+
+  if (exportButton) {
+    exportButton.onclick = async () => {
+      exportButton.disabled = true;
+      texts.text(exportButton, 'todo.exporting');
+      showError('');
+      try {
+        const task = await coreJson('/export/plugins/todo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: '/api/exports/todos', format: 'xlsx' }),
+        });
+        while (!destroyed) {
+          const result = await coreJson(`/export/check-export-status/${encodeURIComponent(task.task_id)}`);
+          if (result.status === 'ready' && result.file_url) {
+            const link = document.createElement('a');
+            link.href = coreUrl(result.file_url);
+            link.hidden = true;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            break;
+          }
+          if (result.status === 'error') throw new Error(texts.t('todo.export-failed'));
+          await wait(1000);
+        }
+      } catch (err) {
+        if (!destroyed) showError(err.message);
+      } finally {
+        if (!destroyed) {
+          exportButton.disabled = false;
+          texts.text(exportButton, 'todo.export');
+        }
+      }
+    };
+  }
 
   /** An error as the SDK worded it: data, shown as it is. */
   const showError = (msg) => {
@@ -104,12 +190,10 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
 
   function render(todos) {
     if (destroyed) return;
+    empty.clear();
     list.innerHTML = '';
     if (!todos.length) {
-      const empty = document.createElement('p');
-      empty.className = 'empty';
-      texts.text(empty, scoped ? 'todo.no-computer-todos' : 'todo.no-todos');
-      list.append(empty);
+      empty.show(list, scoped ? 'todo.no-computer-todos' : 'todo.no-todos');
       return;
     }
     for (const todo of todos) {
@@ -119,8 +203,11 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
       const check = document.createElement('input');
       check.type = 'checkbox';
       check.checked = todo.done;
-      check.disabled = !canWrite;
-      check.onchange = () => update(todo.id, { done: check.checked });
+      check.disabled = !canUpdate;
+      check.onchange = async () => {
+        const updated = await update(todo.id, { done: check.checked });
+        if (!updated && !destroyed) check.checked = todo.done;
+      };
       li.append(check);
 
       if (editingId === todo.id) {
@@ -159,10 +246,10 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
         const editBtn = document.createElement('button');
         texts.text(editBtn, 'todo.edit');
         editBtn.onclick = () => { editingId = todo.id; load(); };
-        if (canWrite) li.append(editBtn);
+        if (canUpdate) li.append(editBtn);
       }
 
-      if (canWrite) {
+      if (canDelete) {
         const del = document.createElement('button');
         texts.text(del, 'todo.delete');
         del.onclick = () => remove(todo.id);
@@ -176,8 +263,11 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
   /** Who is signed in, in the words of the moment. */
   function drawWho() {
     if (!me) return;
+    const canWrite = canCreate || canUpdate || canDelete;
     // Inside the Core the user knows who they are; only say "read only".
-    who.textContent = scoped ? (me.canWrite ? '' : texts.t('todo.read-only')) : describeUser(me, texts.t);
+    who.textContent = scoped
+      ? (canWrite ? '' : texts.t('todo.read-only'))
+      : describeUser(me, texts.t, canWrite);
     who.hidden = !who.textContent;
   }
   texts.onChange(drawWho);
@@ -186,13 +276,26 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
     const found = await whoIsCalling(api);
     if (!found || destroyed) return;
     me = found;
-    canWrite = me.canWrite;
+    canCreate = hasAction(me, ACTIONS.TODO_CREATE);
+    canUpdate = hasAction(me, ACTIONS.TODO_UPDATE);
+    canDelete = hasAction(me, ACTIONS.TODO_DELETE);
     drawWho();
-    form.hidden = !canWrite;
+    form.hidden = !canCreate;
   }
 
-  function drawPager(offset) {
-    pager?.update({ total, loaded: held.length, loading: busy, ...(offset === undefined ? {} : { offset }) });
+  /** Draw the Core's footer from what this table holds; called again on every change. */
+  function drawPagination() {
+    if (!paged || destroyed) return;
+    stopPagination = ui.pagination(paginationBox, {
+      mode,
+      total,
+      offset: windowStart,
+      loaded: held.length,
+      pageSize: PAGE_SIZE,
+      loading: busy,
+      onPage: (offset) => fetchRange({ offset, limit: PAGE_SIZE, append: false }),
+      onLoadMore: () => fetchRange({ offset: held.length, limit: PAGE_SIZE, append: true }),
+    });
   }
 
   /** Fetch rows [offset, offset + limit) and show them, or add them to the rows held. */
@@ -200,23 +303,29 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
     const mine = ++serial;
     const first = held.length === 0;
     busy = true;
-    drawPager();
+    drawPagination();
     if (first && ui?.loading && !stopLoader) stopLoader = ui.loading(loadingBox);
     try {
       showError('');
+      hidePendingApproval(approvalCard);
       const sep = listPath.includes('?') ? '&' : '?';
-      const page = await api.get(`${listPath}${sep}limit=${limit}&offset=${offset}`);
+      const response = await api.get(`${listPath}${sep}limit=${limit}&offset=${offset}`);
       if (destroyed || mine !== serial) return;
-      total = page.total;
+      if (showPendingApproval(approvalCard, response)) {
+        held = [];
+        total = 0;
+        list.innerHTML = '';
+        return;
+      }
+      total = response.total;
       // A delete emptied the last page: step back to the one before it.
-      if (!page.results.length && offset > 0 && total > 0 && !append) {
+      if (!response.results.length && offset > 0 && total > 0 && !append) {
         const back = Math.max(0, offset - limit);
         windowStart = back;
-        drawPager(back);
         return fetchRange({ offset: back, limit, append: false });
       }
-      if (append) held = [...held, ...page.results];
-      else { held = page.results; windowStart = offset; }
+      if (append) held = [...held, ...response.results];
+      else { held = response.results; windowStart = offset; }
       render(held);
     } catch (err) {
       if (!destroyed && mine === serial) showError(err.message);
@@ -225,7 +334,7 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
         busy = false;
         stopLoader?.();
         stopLoader = null;
-        drawPager();
+        drawPagination();
       }
     }
   }
@@ -236,23 +345,28 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
   /** A new todo is the newest, so it is on the first page. */
   function loadFirst() {
     windowStart = 0;
-    drawPager(0);
     return fetchRange({ offset: 0, limit: Math.max(held.length, pageSize), append: false });
   }
 
   async function update(id, changes) {
     try {
-      await api.put(`/todos/${id}`, changes);
+      hidePendingApproval(approvalCard);
+      const response = await api.put(`/todos/${id}`, changes);
+      if (showPendingApproval(approvalCard, response)) return false;
       editingId = null;
       load();
+      return true;
     } catch (err) {
       showError(err.message);
+      return false;
     }
   }
 
   async function remove(id) {
     try {
-      await api.delete(`/todos/${id}`);
+      hidePendingApproval(approvalCard);
+      const response = await api.delete(`/todos/${id}`);
+      if (showPendingApproval(approvalCard, response)) return;
       load();
     } catch (err) {
       showError(err.message);
@@ -264,7 +378,11 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
     const title = input.value.trim();
     if (!title) return;
     try {
-      await api.post('/todos', scoped ? { title, computer_id: computerId } : { title });
+      hidePendingApproval(approvalCard);
+      const response = await api.post(
+        '/todos', scoped ? { title, computer_id: computerId } : { title },
+      );
+      if (showPendingApproval(approvalCard, response)) return;
       input.value = '';
       loadFirst();
     } catch (err) {
@@ -284,8 +402,9 @@ export function mountTodoList(root, { api, i18n, ui = null, computerId = null })
     destroyed = true;
     stopListening();
     stopLoader?.();
-    pager?.destroy();
-    stopExport?.();
+    stopPagination?.();
+    stopMode?.();
+    empty.clear();
     texts.stop();
   };
 }

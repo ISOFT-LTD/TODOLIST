@@ -1,5 +1,7 @@
 key
-to-do
+todo
+todo-list
+todo-predefined
 todo.add
 todo.add-computer-todo-title
 todo.add-computer-todo-tooltip
@@ -16,6 +18,9 @@ todo.error-reference
 todo.error-request-failed
 todo.error-session-ended
 todo.error-unavailable
+todo.export
+todo.export-failed
+todo.exporting
 todo.list-items-placeholder
 todo.list-items-required
 todo.list-name-placeholder
@@ -26,9 +31,11 @@ todo.no-computer
 todo.no-computer-todos
 todo.no-predefined-lists
 todo.no-todos
+todo.open-todos
 todo.predefined-title
 todo.read-only
 todo.read-only-suffix
 todo.save
+todo.service-status
 todo.signed-in-as
 todo.title

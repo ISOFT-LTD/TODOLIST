@@ -4,10 +4,11 @@
  * Framework-agnostic on purpose: the shell calls mount() from a React effect,
  * so the plugin never bundles or shares React.
  *
- * The plugin reaches the outside world only through the SDK it is given. It
- * never imports Core code and knows nothing about URLs, sessions or transport:
- * in the ITSM shell, Core's SDK routes sdk.api through Core; standalone, the
- * page's own SDK (core-sdk.js) calls through Core relative to the page.
+ * Todo data reaches the outside world only through the SDK it is given. The
+ * standalone list's export control calls the Core origin that served its
+ * module, so it still handles no token or configured host. In the ITSM shell,
+ * Core's SDK routes sdk.api through Core; standalone, the page's own SDK
+ * (core-sdk.js) calls through Core relative to the page.
  *
  *   const unmount = mount(element, { sdk, path });
  *
@@ -17,6 +18,8 @@
  *
  *   ''             or '/'    the To do List             /plugins/ui/todo
  *   '/predefined'            the Predefined to do lists /plugins/ui/todo/predefined
+ *   anything else            the Core's "page not found" (sdk.ui), or the
+ *                            To do List where there is no sdk.ui
  *
  * When the host passes no `path`, the plugin reads it off the page URL, so a
  * shell that only routes the address bar still lands on the right page. To
@@ -27,13 +30,17 @@
  *   - path is relative to this plugin's API, e.g. '/todos/1'
  *   - resolves to the parsed JSON response, or null when there is no body
  *   - rejects with an Error whose message is safe to show the user
- *   sdk.ui.pager / loading / exportButton (optional)
- *   - the Core's own list footer, loader and download button, drawn by the
- *     Core into elements this page owns; without them the list is shown whole
+ *   sdk.ui.tableMode() / onTableModeChange / pagination / loading (optional)
+ *   - the user's table-mode setting, and the Core's own list footer and
+ *     loader, drawn by the Core into elements this page owns; the page keeps
+ *     its own total and offset. Without them the list is shown whole
  *   sdk.i18n.translate(key) / subscribe(listener)
  *   - the application's translations, the Core's own; the plugin bundles none
  *   - a change of language is no new mount: the page is told through
  *     subscribe and redraws its words in place (plugin-translation.js)
+ *   sdk.ui.noData(el, options) / notFound(el)        optional
+ *   - the Core's own empty state and 404, drawn by the Core into `el`;
+ *     each returns what erases it (pages/empty-state.js)
  */
 
 import styles from './styles.css?inline';
@@ -65,10 +72,22 @@ function pathFromLocation() {
   return match ? match.path : '';
 }
 
-/** The page for a sub-path; unknown paths fall back to the To do List. */
+/** The page for a sub-path, or null for one the plugin has no page at. */
 export function resolvePage(path) {
   const wanted = path === undefined || path === null ? pathFromLocation() : normalizePath(path);
-  return PAGES.find((page) => page.path === wanted) ?? PAGES[0];
+  return PAGES.find((page) => page.path === wanted) ?? null;
+}
+
+/**
+ * What a sub-path with no page shows: the Core's "page not found", drawn by
+ * the Core (sdk.ui). Where there is no sdk.ui, the To do List, as before.
+ */
+function mountNotFound(root, { ui, api, i18n }) {
+  if (typeof ui?.notFound !== 'function') return PAGES[0].mount(root, { api, i18n, ui });
+  const slot = document.createElement('div');
+  root.append(slot);
+  const erase = ui.notFound(slot);
+  return () => erase();
 }
 
 /**
@@ -91,7 +110,8 @@ export function mount(el, { sdk, path } = {}) {
   if (missing.length) {
     throw new Error(`todo-plugin: mount() needs { sdk } with ${missing.join(', ')}`);
   }
-  const { api, i18n } = sdk;
+  // sdk.ui is optional: a Core from before it, and the standalone page, have none.
+  const { api, i18n, ui } = sdk;
 
   // Remount cleanly. React StrictMode mounts, unmounts, then mounts again.
   unmount(el);
@@ -101,7 +121,7 @@ export function mount(el, { sdk, path } = {}) {
   root.innerHTML = `<style>${styles}</style>`;
 
   const page = resolvePage(path);
-  const teardownPage = page.mount(root, { api, i18n, ui: sdk.ui });
+  const teardownPage = (page?.mount ?? mountNotFound)(root, { api, i18n, ui });
 
   instances.set(el, () => {
     teardownPage();

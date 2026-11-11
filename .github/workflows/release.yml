@@ -1,0 +1,50 @@
+# Releases the Todo app as a Forge bundle: a tag v1.2.3 builds, scans, signs and publishes version
+# 1.2.3 through Forge's shared app workflow. pulsar.yaml's metadata.version and the service tags
+# must already say 1.2.3; the tag only starts the run.
+#
+# What the shared workflow needs from this repository's settings (Forge's app-release.yml says the
+# same): a `production` environment with the Release Manager as required reviewer and COSIGN_KEY
+# and COSIGN_PASSWORD as its secrets; GHCR_USERNAME and GHCR_TOKEN (packages:write on itec-git);
+# FORGE_TOOLING_TOKEN (read access to ISOFT-LTD/forge) while that repository is private.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+  # The signing job reads who approved the run.
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Tag matches pulsar.yaml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(yq -r '.metadata.version' pulsar.yaml)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match pulsar.yaml metadata.version $version"
+            exit 1
+          fi
+
+  release:
+    needs: version
+    uses: ISOFT-LTD/forge/.github/workflows/app-release.yml@main
+    with:
+      app-path: .
+    secrets: inherit

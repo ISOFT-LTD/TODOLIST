@@ -1,0 +1,24 @@
+# Both images build from the repository root (backend/Dockerfile, frontend/Dockerfile), so this
+# one file decides what a build can see. No environment file, key or local data ever reaches one.
+.git
+.github
+.venv
+venv
+**/.env
+**/.env.*
+cobalt
+dev
+**/node_modules
+**/dist
+**/.vite
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/*.log
+**/*.tmp
+backend/todos.json
+backend/predefined_lists.json
+backend/tests
+backend/requirements-dev.txt
+**/Dockerfile
+.dockerignore

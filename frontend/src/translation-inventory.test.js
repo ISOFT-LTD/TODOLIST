@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import {
   INVENTORY_FILE,
   WORKBOOK_FILE,
@@ -42,25 +43,30 @@ function filesUnder(dir) {
   });
 }
 
-/** What the plugin ships: its sources and the standalone page, without the tests and their stand-ins. */
+/**
+ * What the plugin ships: its sources and the standalone page, without the tests and their
+ * stand-ins, and without actions.js: it holds Core's action keys (todo.view, todo.delete), which
+ * look like translation keys but are never shown.
+ */
 const shipped = [
   ...filesUnder(SRC).filter((file) => {
     const rel = relative(SRC, file).replace(/\\/g, '/');
-    return !rel.endsWith('.test.js') && !rel.startsWith('testing/');
+    return !rel.endsWith('.test.js') && !rel.startsWith('testing/') && rel !== 'actions.js';
   }),
   join(FRONTEND, 'index.html'),
 ];
 const read = (file) => readFileSync(file, 'utf8');
 const named = (file) => relative(ROOT, file).replace(/\\/g, '/');
 
-const manifest = JSON.parse(read(join(ROOT, 'manifest.json')));
-const groups = manifest.navigation.filter((entry) => Array.isArray(entry.children));
+// pulsar.yaml: the backend renders the manifest Core reads from its ui block.
+const { ui, backend } = parse(read(join(ROOT, 'pulsar.yaml')));
+const groups = ui.navigation.filter((entry) => Array.isArray(entry.children));
 const pages = groups.flatMap((group) => group.children);
 
 /** The labels the Core draws that are no tab names: group titles and contribution tabs. */
 const drawnLabels = [
   ...groups.map((group) => group.label),
-  ...manifest.contributes.filter((c) => typeof c.label === 'string').map((c) => c.label),
+  ...ui.contributions.filter((c) => typeof c.label === 'string').map((c) => c.label),
 ];
 
 /** Every key the plugin's UI asks for, as written in what it ships. */
@@ -184,7 +190,7 @@ describe('the workbook', () => {
   const rows = [['key'], ...inventory.map((key) => [key])];
 
   it('exists beside the inventory', () => {
-    expect(existsSync(WORKBOOK_FILE), `${WORKBOOK_FILE}: run "npm run translation-keys"`).toBe(true);
+    expect(existsSync(WORKBOOK_FILE), `${WORKBOOK_FILE}: run "pnpm translation-keys"`).toBe(true);
   });
 
   it('holds exactly the inventory: one sheet, one column named key, one row per key', () => {
@@ -212,20 +218,18 @@ describe('the manifest', () => {
   });
 
   it('declares that the plugin reads sdk.i18n', () => {
-    expect(manifest.frontend.sdk).toContain('i18n');
+    expect(ui.remote.sdk).toContain('i18n');
   });
 
-  // Not done, and not to be settled from this repository. In the Core's
-  // contract the label of a page is one field with two uses: as it is, it is
-  // the page's tab_name in the user's allowed_tabs - what grants the page -
-  // and, lower-cased and hyphenated, it is the key of the text on screen.
-  // Writing a key there renames the tab, and the tab's name is the Core's.
-  it.todo('writes the labels of its pages as keys - blocked: a page label is also its tab_name in allowed_tabs');
-
-  it('until then, asks nothing of the inventory for a page label that is still words', () => {
+  // A page's label has two uses: the panel opens the page only for a user
+  // holding a tab of that name, and draws the label's text by it as a key. So
+  // each label is the sub tab Core makes for its link: <its permission's tab>-<subTab>.
+  it('writes the label of each page as the sub tab Core gives it, in the inventory', () => {
+    const tabOf = Object.fromEntries(backend.permissions.map((p) => [p.key, p.tab]));
+    expect(pages.length).toBeGreaterThan(0);
     for (const page of pages) {
-      if (isKey(page.label)) expect(inventoryKeys.has(page.label), `${page.label} is not in the inventory`).toBe(true);
-      else expect(inventoryKeys.has(coreKeyOf(page.label))).toBe(false);
+      expect(page.label).toBe(`${tabOf[page.permission]}-${page.subTab}`);
+      expect(inventoryKeys.has(page.label), `${page.label} is not in the inventory`).toBe(true);
     }
   });
 });

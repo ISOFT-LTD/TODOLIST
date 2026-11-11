@@ -1,6 +1,6 @@
 """Todos about a Core computer: what the Computer Details contributions rely on."""
 
-from conftest import READ, as_user
+from conftest import READ_ONLY, as_user
 
 
 def _add(client, title, computer_id=None, **who):
@@ -58,7 +58,7 @@ def test_updating_a_todo_keeps_its_computer(client):
 
 
 def test_a_reader_can_list_a_computers_todos_but_not_add_one(client):
-    reader = dict(permissions=[READ])
+    reader = dict(decisions=READ_ONLY)
 
     assert client.get("/api/todos?computer_id=42", headers=as_user(**reader)).status_code == 200
     assert client.post("/api/todos", json={"title": "x", "computer_id": 42},
