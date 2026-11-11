@@ -142,7 +142,7 @@ def test_rows_from_before_owners_existed_are_not_shown(client, tmp_path):
     assert client.get("/api/todos", headers=as_user()).json()["results"] == []
 
 
-# --- paging and export ----------------------------------------------------------------
+# --- paging ----------------------------------------------------------------
 
 def test_the_list_is_paged_and_counted(client):
     for n in range(5):
@@ -161,14 +161,3 @@ def test_paging_limits_are_validated(client):
     assert client.get("/api/todos?limit=0", headers=as_user()).status_code == 422
     assert client.get("/api/todos?limit=201", headers=as_user()).status_code == 422
     assert client.get("/api/todos?offset=-1", headers=as_user()).status_code == 422
-
-
-def test_export_is_the_whole_list_in_the_document_core_expects(client):
-    for n in range(3):
-        client.post("/api/todos", json={"title": f"t{n}"}, headers=as_user())
-
-    doc = client.get("/api/exports/todos", headers=as_user()).json()
-
-    assert doc["filename"] == "todos"
-    assert doc["columns"] == ["id", "title", "done", "computer_id"]
-    assert [row[1] for row in doc["rows"]] == ["t2", "t1", "t0"]

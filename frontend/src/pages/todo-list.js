@@ -6,8 +6,8 @@
  *
  * Renders into the shadow root the plugin shell prepared (styles already in
  * place) and talks to the Todo API through `api` (see todo-app.js). The
- * standalone export button uses the Core origin that served this module. The
- * Core's own list footer and loader come through `ui`: the table is shown a
+ * standalone export button uses the Core origin that served this module.
+ * The Core's own list footer and loader come through `ui`: the table is shown a
  * page at a time, or with Load More, as the user's table-mode setting says,
  * and this page keeps its own total and offset. Its
  * words come from `i18n`, the application's translations, through the
