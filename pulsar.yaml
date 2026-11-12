@@ -142,7 +142,10 @@ ui:
     mountFunction: mount
     unmountFunction: unmount
     # i18n: the contributions and pages take their words from the panel's translations.
-    sdk: [api, i18n, ui]
+    # ui: the panel's own states and list parts. tableMode, pagination, loading and rowsThatFit are
+    # the parts the To do List uses: the user's Pagination / Load More setting, the footer drawn from
+    # the list's own total and offset, the shared loader, and the page size that fits the screen.
+    sdk: [api, i18n, ui, tableMode, pagination, loading, rowsThatFit]
     shared: []
   navigation:
     # The group's own path makes its title a link to the To do List, as on staging today.

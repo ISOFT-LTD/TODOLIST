@@ -60,7 +60,11 @@
     "sdk": [
       "api",
       "i18n",
-      "ui"
+      "ui",
+      "tableMode",
+      "pagination",
+      "loading",
+      "rowsThatFit"
     ],
     "shared": []
   },
