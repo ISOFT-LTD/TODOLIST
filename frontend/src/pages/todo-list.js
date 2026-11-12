@@ -324,15 +324,19 @@ export function mountTodoList(root, { api, i18n, ui, computerId = null }) {
         list.innerHTML = '';
         return;
       }
-      total = response.total;
+      // A backend from before paging answers with the whole list: cut the page out of it here.
+      const page = Array.isArray(response)
+        ? { results: response.slice(offset, offset + limit), total: response.length }
+        : response;
+      total = page.total;
       // A delete emptied the last page: step back to the one before it.
-      if (!response.results.length && offset > 0 && total > 0 && !append) {
+      if (!page.results.length && offset > 0 && total > 0 && !append) {
         const back = Math.max(0, offset - limit);
         windowStart = back;
         return fetchRange({ offset: back, limit, append: false });
       }
-      if (append) held = [...held, ...response.results];
-      else { held = response.results; windowStart = offset; }
+      if (append) held = [...held, ...page.results];
+      else { held = page.results; windowStart = offset; }
       render(held);
     } catch (err) {
       if (!destroyed && mine === serial) showError(err.message);

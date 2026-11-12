@@ -44,7 +44,9 @@ function renderUserSettings(root, { sdk }) {
   sdk.api.get('/todos?limit=1&offset=0').then(
     (page) => {
       if (!live) return;
-      root.querySelector('.count').textContent = String(page?.open ?? 0);
+      // An older backend answers with the whole list, with no count.
+      const open = Array.isArray(page) ? page.filter((todo) => !todo.done).length : (page?.open ?? 0);
+      root.querySelector('.count').textContent = String(open);
       summary.hidden = false;
     },
     () => {

@@ -221,3 +221,20 @@ it('erases what the Core drew when the page goes', async () => {
   expect(sdk.pagination.erase).toHaveBeenCalled();
   expect(sdk.ui.tableMode).toBeDefined();
 });
+
+it('still works against a backend from before paging, which answers with the whole list', async () => {
+  const sdk = fakeSdk({ todos: manyTodos(25) });
+  const paged = sdk.api.get.getMockImplementation();
+  sdk.api.get.mockImplementation(async (path) => {
+    const answer = await paged(path);
+    return path === '/me' ? answer : answer.results.length ? manyTodos(25) : [];
+  });
+  const { el, unmount } = await standalone(sdk);
+
+  expect(shown(el)).toHaveLength(10);
+  expect(sdk.pagination.last()).toMatchObject({ total: 25, loaded: 10 });
+  sdk.pagination.last().onPage(20);
+  await settle();
+  expect(shown(el)).toHaveLength(5);
+  unmount();
+});
